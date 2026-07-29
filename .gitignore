@@ -1,0 +1,16 @@
+.gradle/
+.gradle-user/
+.kotlin/
+build/
+app/build/
+outputs/
+work/
+local.properties
+*.apk
+*.aab
+*.keystore
+*.jks
+*.db
+*.db-shm
+*.db-wal
+.DS_Store

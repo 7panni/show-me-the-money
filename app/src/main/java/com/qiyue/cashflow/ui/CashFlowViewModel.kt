@@ -117,23 +117,26 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
         budgetStartDay: Int,
         showUsd: Boolean,
         showCrypto: Boolean,
-        showPaypalAccount: Boolean,
-        showAlipayAccount: Boolean,
-        showCryptoAccount: Boolean,
+        hiddenAccountIds: Set<Long>,
         appMode: AppMode,
         customModules: Set<FeatureModule>,
     ) = launch {
         val profile = AppProfile(appMode, customModules)
+        val accounts = dao.getAccounts()
+        fun shows(type: AccountType) = accounts.none { it.accountType == type } ||
+            accounts.any { it.accountType == type && it.id !in hiddenAccountIds }
         dao.upsertSettings(uiState.value.settings.copy(
             defaultHorizonDays = defaultDays,
             budgetMonthStartDay = budgetStartDay.coerceIn(1, 28),
             showUsdOnHome = showUsd,
             showCryptoOnHome = showCrypto,
-            showPaypalOnAccounts = showPaypalAccount,
-            showAlipayOnAccounts = showAlipayAccount,
-            showCryptoOnAccounts = showCryptoAccount,
+            showPaypalOnAccounts = shows(AccountType.PAYPAL),
+            showAlipayOnAccounts = shows(AccountType.ALIPAY),
+            showCryptoOnAccounts = shows(AccountType.CRYPTO),
             appMode = appMode.name,
             customModulesCsv = profile.modulesCsv(),
+            hiddenAccountIdsCsv = hiddenAccountIds.intersect(accounts.map { it.id }.toSet())
+                .sorted().joinToString(","),
             onboardingCompleted = true,
             seeded = true
         ))
@@ -161,6 +164,8 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
             }
             if (addExamples) addExampleForecastData(profile)
         }
+        val createdAccounts = dao.getAccounts()
+        val hiddenAccountIds = defaultHiddenAccountIds(createdAccounts)
         dao.upsertSettings((dao.getSettings() ?: AppSettingsEntity()).copy(
             showUsdOnHome = AccountType.PAYPAL in chosenTypes,
             showCryptoOnHome = AccountType.CRYPTO in chosenTypes,
@@ -169,6 +174,7 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
             showCryptoOnAccounts = AccountType.CRYPTO in chosenTypes,
             appMode = mode.name,
             customModulesCsv = profile.modulesCsv(),
+            hiddenAccountIdsCsv = hiddenAccountIds.sorted().joinToString(","),
             onboardingCompleted = true,
             seeded = true,
         ))
@@ -178,7 +184,11 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
 
     fun clearAll() = launch {
         dao.replaceForecastData(emptyList(), emptyList(), emptyList(), emptyList(),
-            uiState.value.settings.copy(seeded = true, onboardingCompleted = true))
+            uiState.value.settings.copy(
+                hiddenAccountIdsCsv = "",
+                seeded = true,
+                onboardingCompleted = true,
+            ))
         message.value = "账户和计划数据已清空，可从“账户”重新开始"
     }
 
@@ -191,8 +201,14 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
     fun restoreJson(text: String) = launch {
         runCatching { BackupJson.decode(text) }.onSuccess {
             fun renamed(name: String): String = if (name == "招商银行") "银行" else name
+            val restoredAccounts = it.accounts.map { account -> account.copy(name = renamed(account.name)) }
+            val restoredHiddenIds = if (it.hasAccountVisibilitySettings) {
+                parseAccountIds(it.settings.hiddenAccountIdsCsv)
+            } else {
+                defaultHiddenAccountIds(restoredAccounts)
+            }
             dao.replaceForecastData(
-                it.accounts.map { account -> account.copy(name = renamed(account.name)) },
+                restoredAccounts,
                 it.plans.map { plan -> plan.copy(
                     accountName = renamed(plan.accountName),
                     toAccountName = plan.toAccountName?.let(::renamed)
@@ -206,7 +222,7 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
                 it.adjustments.map { adjustment ->
                     adjustment.copy(accountName = renamed(adjustment.accountName))
                 },
-                it.settings,
+                it.settings.copy(hiddenAccountIdsCsv = restoredHiddenIds.sorted().joinToString(",")),
                 it.holdings
             )
             horizon.value = it.settings.defaultHorizonDays
@@ -298,6 +314,7 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
             .putBoolean("v063_bank_rename_applied", true)
             .putBoolean("v064_all_accounts_enabled", true)
             .putBoolean("v065_cash_account_applied", true)
+            .putBoolean("v09_dynamic_visibility_applied", true)
             .apply()
     }
 
@@ -401,6 +418,22 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
             }
             setupPrefs.edit().putBoolean("v065_cash_account_applied", true).apply()
         }
+
+        if (!setupPrefs.getBoolean("v09_dynamic_visibility_applied", false)) {
+            val settings = dao.getSettings() ?: AppSettingsEntity(seeded = true)
+            if (settings.hiddenAccountIdsCsv.isBlank()) {
+                val accounts = dao.getAccounts()
+                val hiddenIds = defaultHiddenAccountIds(accounts)
+                dao.upsertSettings(settings.copy(
+                    hiddenAccountIdsCsv = hiddenIds.sorted().joinToString(","),
+                    showPaypalOnAccounts = accounts.none { it.accountType == AccountType.PAYPAL },
+                    showAlipayOnAccounts = accounts.none { it.accountType == AccountType.ALIPAY } ||
+                        accounts.any { it.accountType == AccountType.ALIPAY && it.id !in hiddenIds },
+                    showCryptoOnAccounts = accounts.none { it.accountType == AccountType.CRYPTO },
+                ))
+            }
+            setupPrefs.edit().putBoolean("v09_dynamic_visibility_applied", true).apply()
+        }
     }
 
     private fun accountOrder(account: AccountEntity): Int = when (account.name) {
@@ -415,5 +448,18 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
 
     companion object {
         private const val LONG_TERM_RISK_DAYS = 3650
+        private val DEFAULT_VISIBLE_ACCOUNT_TYPES = setOf(
+            AccountType.CMB, AccountType.WECHAT, AccountType.ALIPAY, AccountType.CASH,
+        )
+
+        private fun parseAccountIds(csv: String): Set<Long> = csv.split(',')
+            .mapNotNull { it.trim().toLongOrNull() }
+            .toSet()
+
+        private fun defaultHiddenAccountIds(accounts: List<AccountEntity>): Set<Long> {
+            val defaultVisible = accounts.filter { it.accountType in DEFAULT_VISIBLE_ACCOUNT_TYPES }
+            if (defaultVisible.isEmpty()) return emptySet()
+            return accounts.filterNot { it.accountType in DEFAULT_VISIBLE_ACCOUNT_TYPES }.map { it.id }.toSet()
+        }
     }
 }

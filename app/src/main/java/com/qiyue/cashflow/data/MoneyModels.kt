@@ -125,6 +125,7 @@ data class AppSettingsEntity(
     val showCryptoOnAccounts: Boolean = true,
     val appMode: String = "SIMPLE",
     val customModulesCsv: String = "",
+    val hiddenAccountIdsCsv: String = "",
     val onboardingCompleted: Boolean = false,
     val seeded: Boolean = false
 )

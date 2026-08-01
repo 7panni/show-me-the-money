@@ -40,6 +40,7 @@ class BackupJsonTest {
                 showCryptoOnAccounts = false,
                 appMode = "CUSTOM",
                 customModulesCsv = "BUDGET,TRANSFER",
+                hiddenAccountIdsCsv = "1,8,21",
                 onboardingCompleted = true,
                 seeded = true
             ),
@@ -72,10 +73,12 @@ class BackupJsonTest {
                 remove("appMode")
                 remove("customModules")
                 remove("onboardingCompleted")
+                remove("hiddenAccountIds")
             }
         }.toString()
         val restored = BackupJson.decode(legacy)
         assertEquals("SIMPLE", restored.settings.appMode)
         assertTrue(restored.settings.onboardingCompleted)
+        assertTrue(!restored.hasAccountVisibilitySettings)
     }
 }

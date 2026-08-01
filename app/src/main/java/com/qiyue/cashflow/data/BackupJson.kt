@@ -9,13 +9,14 @@ data class ForecastBackup(
     val budgets: List<BudgetEntity>,
     val adjustments: List<AdjustmentEntity>,
     val settings: AppSettingsEntity,
-    val holdings: List<CryptoHoldingEntity> = emptyList()
+    val holdings: List<CryptoHoldingEntity> = emptyList(),
+    val hasAccountVisibilitySettings: Boolean = true,
 )
 
 object BackupJson {
     fun encode(data: ForecastBackup): String = JSONObject().apply {
         put("format", "cashflow-forecast")
-        put("version", 1)
+        put("version", 2)
         put("accounts", JSONArray(data.accounts.map { a -> JSONObject().apply {
             put("id", a.id); put("name", a.name); put("initialBalance", a.initialBalanceCents); put("balance", a.currentBalanceCents)
             put("currency", a.currencyCode); put("rate", a.exchangeRateToCnyMicros)
@@ -52,6 +53,7 @@ object BackupJson {
             put("showCryptoOnAccounts", data.settings.showCryptoOnAccounts)
             put("appMode", data.settings.appMode)
             put("customModules", data.settings.customModulesCsv)
+            put("hiddenAccountIds", data.settings.hiddenAccountIdsCsv)
             put("onboardingCompleted", data.settings.onboardingCompleted)
             put("seeded", data.settings.seeded)
         })
@@ -101,10 +103,12 @@ object BackupJson {
                 showCryptoOnAccounts=s.optBoolean("showCryptoOnAccounts", true),
                 appMode=s.optString("appMode", "SIMPLE"),
                 customModulesCsv=s.optString("customModules", ""),
+                hiddenAccountIdsCsv=s.optString("hiddenAccountIds", ""),
                 onboardingCompleted=s.optBoolean("onboardingCompleted", true),
                 seeded=s.optBoolean("seeded", true)
             ),
-            holdings
+            holdings,
+            s.has("hiddenAccountIds"),
         )
     }
 }

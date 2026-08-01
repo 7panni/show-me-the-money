@@ -14,13 +14,13 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class AppDatabaseMigrationTest {
     private val context = ApplicationProvider.getApplicationContext<Context>()
-    private val databaseName = "migration-5-6-test.db"
+    private val databaseName = "migration-5-7-test.db"
 
     @After fun cleanUp() {
         context.deleteDatabase(databaseName)
     }
 
-    @Test fun migration5To6PreservesSettingsAndMarksExistingUserComplete() {
+    @Test fun migration5To7PreservesSettingsAndAddsVisibilityChoices() {
         context.deleteDatabase(databaseName)
         val helper = FrameworkSQLiteOpenHelperFactory().create(
             SupportSQLiteOpenHelper.Configuration.builder(context)
@@ -43,12 +43,14 @@ class AppDatabaseMigrationTest {
         )
         helper.writableDatabase.use { db ->
             AppDatabase.MIGRATION_5_6.migrate(db)
-            db.query("SELECT defaultHorizonDays, appMode, customModulesCsv, onboardingCompleted FROM AppSettingsEntity WHERE id=1").use { cursor ->
+            AppDatabase.MIGRATION_6_7.migrate(db)
+            db.query("SELECT defaultHorizonDays, appMode, customModulesCsv, onboardingCompleted, hiddenAccountIdsCsv FROM AppSettingsEntity WHERE id=1").use { cursor ->
                 cursor.moveToFirst()
                 assertEquals(365, cursor.getInt(0))
                 assertEquals("FULL", cursor.getString(1))
                 assertEquals("", cursor.getString(2))
                 assertEquals(1, cursor.getInt(3))
+                assertEquals("", cursor.getString(4))
             }
         }
         helper.close()

@@ -13,8 +13,8 @@ android {
         applicationId = "com.qiyue.cashflow.forecast"
         minSdk = 26
         targetSdk = 35
-        versionCode = 14
-        versionName = "0.7.0-test"
+        versionCode = 15
+        versionName = "0.9.0-test"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -27,7 +27,7 @@ android {
         getByName("release") {
             isMinifyEnabled = true
             isShrinkResources = true
-            // 0.7 测试发布包使用本机调试签名，正式商店版将改用独立发布密钥。
+            // 测试发布包使用本机调试签名，正式商店版将改用独立发布密钥。
             signingConfig = signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

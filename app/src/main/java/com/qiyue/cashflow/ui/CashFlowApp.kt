@@ -165,6 +165,11 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
 
 @Composable private fun HomePage(state: CashFlowUiState, pad: PaddingValues, onHorizon: (Int)->Unit) {
     val s = state.summary
+    val otherCurrencyBalances = state.accounts
+        .filter { it.isActive && it.includeInForecast && it.currencyCode !in setOf("CNY", "USD", "CRYPTO") }
+        .groupBy { it.currencyCode }
+        .mapValues { (_, accounts) -> accounts.sumOf { it.currentBalanceCents } }
+        .toSortedMap()
     val monthEnd = s.days.firstOrNull { it.date == LocalDate.now().withDayOfMonth(LocalDate.now().lengthOfMonth()) }?.balanceCents
         ?: s.endBalanceCents
     LazyColumn(Modifier.fillMaxSize().padding(pad), contentPadding=PaddingValues(16.dp), verticalArrangement=Arrangement.spacedBy(12.dp)) {
@@ -175,6 +180,9 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
                     Text("人民币", color=Color.Gray)
                     Text(money(s.currentBalanceCents), style=MaterialTheme.typography.headlineMedium, fontWeight=FontWeight.Bold)
                     if(state.settings.showUsdOnHome) Metric("美元", usdMoney(s.currentUsdCents))
+                    otherCurrencyBalances.forEach { (currency, amount) ->
+                        Metric(currencyLabel(currency), currencyMoney(amount, currency))
+                    }
                     if(state.settings.showCryptoOnHome) {
                         Text("数字货币",color=Color.Gray)
                         Text(cryptoSummary(state.cryptoHoldings),fontWeight=FontWeight.SemiBold)
@@ -356,7 +364,10 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
                 append(" · ${LocalDate.ofEpochDay(a.dateEpochDay)}")
                 if(a.appliedToBalance) append(" · 已计入真实余额")
             },
-            money(a.amountCents), true, null,
+            currencyMoney(
+                a.amountCents,
+                state.accounts.firstOrNull { it.name == a.accountName }?.currencyCode ?: "CNY"
+            ), true, null,
             if(a.type==AdjustmentType.TEMPORARY && !a.appliedToBalance) {{adjustmentEdit=a;showAdjustment=true}} else null,
             {delete="“${a.name}”" to {vm.deleteAdjustment(a.id)}},
             extraAction = if(
@@ -375,20 +386,17 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
     var editing by remember { mutableStateOf<AccountEntity?>(null) }
     var showEditor by remember { mutableStateOf(false) }
     var showCryptoEditor by remember { mutableStateOf(false) }
-    val visibleAccounts = state.accounts.filter { account ->
-        when (account.accountType) {
-            AccountType.PAYPAL -> state.settings.showPaypalOnAccounts
-            AccountType.ALIPAY -> state.settings.showAlipayOnAccounts
-            AccountType.CRYPTO -> state.settings.showCryptoOnAccounts
-            else -> true
-        }
+    val hiddenAccountIds = remember(state.settings.hiddenAccountIdsCsv) {
+        parseAccountIdCsv(state.settings.hiddenAccountIdsCsv)
     }
+    val visibleAccounts = state.accounts.filter { it.id !in hiddenAccountIds }
     LazyColumn(Modifier.fillMaxSize().padding(pad), contentPadding=PaddingValues(16.dp), verticalArrangement=Arrangement.spacedBy(10.dp)) {
         item { Button({editing=null;showEditor=true}, Modifier.fillMaxWidth()){Text("＋ 增加账户")} }
         if(visibleAccounts.isEmpty()) item { EmptyCard("没有需要显示的账户，可到“设置”恢复隐藏账户。") }
         items(visibleAccounts, key={it.id}) { a ->
             val endNative = state.summary.days.lastOrNull()?.accountBalancesCents?.get(a.name) ?: a.currentBalanceCents
-            var balanceText by remember(a.id,a.currentBalanceCents) { mutableStateOf(decimal(a.currentBalanceCents)) }
+            var balanceText by remember(a.id,a.currentBalanceCents) { mutableStateOf(currencyDecimal(a.currentBalanceCents,a.currencyCode)) }
+            var showCalculator by remember(a.id) { mutableStateOf(false) }
             Card { Column(Modifier.padding(15.dp), verticalArrangement=Arrangement.spacedBy(8.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement=Arrangement.SpaceBetween) {
                     Column(Modifier.weight(1f)) {
@@ -408,16 +416,17 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
                             value=balanceText,
                             onValueChange={balanceText=it},
                             modifier=Modifier.weight(1f),
-                            label={Text("真实余额（可加减）")},
+                            label={Text("真实余额")},
                             singleLine=true,
                             keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Decimal)
                         )
                         Button(
-                            onClick={parseCentsExpression(balanceText)?.let{vm.calibrate(a,it)}},
-                            enabled=parseCentsExpression(balanceText)!=null
+                            onClick={parseCurrencyExpression(balanceText,a.currencyCode)?.let{vm.calibrate(a,it)}},
+                            enabled=parseCurrencyExpression(balanceText,a.currencyCode)!=null
                         ){Text("校准")}
                     }
-                    Text("可输入新余额，或像 1000+50-20 这样快速计算。", color=Color.Gray, style=MaterialTheme.typography.bodySmall)
+                    OutlinedButton({showCalculator=true},Modifier.fillMaxWidth()){Text("打开加减计算器")}
+                    Text("计算结果会回填到上方，确认后点“校准”。", color=Color.Gray, style=MaterialTheme.typography.bodySmall)
                     Text("未来${state.horizonDays}天预计余额 ${nativeMoney(endNative,a.currencyCode)}", color=Green)
                 }
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement=Arrangement.spacedBy(6.dp)) {
@@ -425,6 +434,9 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
                     AssistChip({editing=a;showEditor=true},{Text("编辑")})
                 }
             }}
+            if(showCalculator) BalanceCalculatorDialog(
+                balanceText,a.currencyCode,{showCalculator=false}
+            ){result->balanceText=result;showCalculator=false}
         }
     }
     if(showEditor) AccountDialog(editing,profile,{showEditor=false}){vm.saveAccount(it);showEditor=false}
@@ -439,9 +451,9 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
     var budgetStartDay by remember(state.settings.budgetMonthStartDay) { mutableStateOf(state.settings.budgetMonthStartDay.toString()) }
     var showUsd by remember(state.settings.showUsdOnHome) { mutableStateOf(state.settings.showUsdOnHome) }
     var showCrypto by remember(state.settings.showCryptoOnHome) { mutableStateOf(state.settings.showCryptoOnHome) }
-    var showPaypalAccount by remember(state.settings.showPaypalOnAccounts) { mutableStateOf(state.settings.showPaypalOnAccounts) }
-    var showAlipayAccount by remember(state.settings.showAlipayOnAccounts) { mutableStateOf(state.settings.showAlipayOnAccounts) }
-    var showCryptoAccount by remember(state.settings.showCryptoOnAccounts) { mutableStateOf(state.settings.showCryptoOnAccounts) }
+    var hiddenAccountIds by remember(state.settings.hiddenAccountIdsCsv, state.accounts.map { it.id }) {
+        mutableStateOf(parseAccountIdCsv(state.settings.hiddenAccountIdsCsv))
+    }
     var mode by remember(state.settings.appMode) {
         mutableStateOf(AppProfile.parse(state.settings.appMode, state.settings.customModulesCsv).mode)
     }
@@ -484,13 +496,22 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
             Text("人民币、美元和数字货币分别显示，不做汇率换算。",color=Color.Gray,style=MaterialTheme.typography.bodySmall)
             HorizontalDivider()
             Section("账户页显示")
-            Row(verticalAlignment=Alignment.CenterVertically){Checkbox(showPaypalAccount,{showPaypalAccount=it});Text("显示 PayPal")}
-            Row(verticalAlignment=Alignment.CenterVertically){Checkbox(showAlipayAccount,{showAlipayAccount=it});Text("显示支付宝")}
-            Row(verticalAlignment=Alignment.CenterVertically){Checkbox(showCryptoAccount,{showCryptoAccount=it});Text("显示数字货币")}
+            if (state.accounts.isEmpty()) Text("还没有账户。",color=Color.Gray)
+            state.accounts.forEach { account ->
+                Row(verticalAlignment=Alignment.CenterVertically) {
+                    Checkbox(account.id !in hiddenAccountIds,{ visible ->
+                        hiddenAccountIds = if (visible) hiddenAccountIds - account.id else hiddenAccountIds + account.id
+                    })
+                    Column {
+                        Text(account.name)
+                        Text(currencyLabel(account.currencyCode),color=Color.Gray,style=MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
             Text("这里只控制账户页是否显示，不影响余额和预测。",color=Color.Gray,style=MaterialTheme.typography.bodySmall)
             Button({vm.updateSettings(
                 days,budgetStartDay.toIntOrNull()?:21,showUsd,showCrypto,
-                showPaypalAccount,showAlipayAccount,showCryptoAccount,mode,customModules
+                hiddenAccountIds,mode,customModules
             )},Modifier.fillMaxWidth()){Text("保存全部设置")}
         }}}
         item { Card { Column(Modifier.padding(16.dp), verticalArrangement=Arrangement.spacedBy(10.dp)) {
@@ -596,15 +617,18 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
 
 @Composable private fun AdjustmentDialog(old:AdjustmentEntity?,state:CashFlowUiState,close:()->Unit,save:(AdjustmentEntity)->Unit) {
     var name by remember{mutableStateOf(old?.name?:"")}
-    var amount by remember{mutableStateOf(old?.amountCents?.let(::decimal)?:"")}
     var income by remember{mutableStateOf(old?.isIncome?:false)}
     var account by remember{mutableStateOf(old?.accountName?:state.accounts.firstOrNull()?.name.orEmpty())}
+    val initialCurrency=state.accounts.firstOrNull{it.name==account}?.currencyCode?:"CNY"
+    var amount by remember(old?.id,initialCurrency){mutableStateOf(old?.amountCents?.let{currencyDecimal(it,initialCurrency)}?:"")}
     var date by remember{mutableStateOf(old?.dateEpochDay?.let(LocalDate::ofEpochDay)?:LocalDate.now().plusDays(1))}
     var budget by remember{mutableStateOf(old?.usesBudget?:false)}
     EditDialog(if(old==null)"新增未来临时收支" else "编辑未来临时收支",close,{
-        parseCents(amount)?.let{save(AdjustmentEntity(old?.id?:0,name.ifBlank{if(income)"临时收入" else "临时支出"},AdjustmentType.TEMPORARY,it,account,date.toEpochDay(),income,budget,old?.appliedToBalance?:false))}
+        val currency=state.accounts.firstOrNull{it.name==account}?.currencyCode?:"CNY"
+        parseCurrencyAmount(amount,currency)?.let{save(AdjustmentEntity(old?.id?:0,name.ifBlank{if(income)"临时收入" else "临时支出"},AdjustmentType.TEMPORARY,it,account,date.toEpochDay(),income,budget,old?.appliedToBalance?:false))}
     }) {
-        TextFieldSimple(name,{name=it},"名称");MoneyField(amount,{amount=it},"金额")
+        val currency=state.accounts.firstOrNull{it.name==account}?.currencyCode?:"CNY"
+        TextFieldSimple(name,{name=it},"名称");MoneyField(amount,{amount=it},"金额（${currencyLabel(currency)}）")
         ChoiceRow(listOf(false,true),income,{income=it}){if(it)"收入" else "支出"}
         AccountChoice("账户",state.accounts,account){account=it};DateChoice("发生日期",date){date=it}
         Row(verticalAlignment=Alignment.CenterVertically){Checkbox(budget,{budget=it});Text("占用预算")}
@@ -614,17 +638,24 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
 @Composable private fun AccountDialog(old:AccountEntity?,profile:AppProfile,close:()->Unit,save:(AccountEntity)->Unit) {
     var name by remember{mutableStateOf(old?.name?:"")}
     var balance by remember{mutableStateOf("")}
-    var currency by remember{mutableStateOf(old?.currencyCode?:"CNY")}
     var type by remember{mutableStateOf(old?.accountType?:AccountType.CASH)}
+    val commonCurrencies=listOf("CNY","USD","EUR","GBP","JPY","HKD")
+    var currencyChoice by remember{mutableStateOf(old?.currencyCode?.takeIf{it in commonCurrencies}?:"CNY")}
+    var customCurrency by remember{mutableStateOf(old?.currencyCode?.takeIf{it !in commonCurrencies}.orEmpty())}
+    var currencyError by remember{mutableStateOf(false)}
     EditDialog(if(old==null)"增加账户" else "编辑账户",close,{
         if(old==null) {
             val actualCurrency = when(type) {
                 AccountType.PAYPAL -> "USD"
                 AccountType.CRYPTO -> "CRYPTO"
-                AccountType.CUSTOM -> currency
+                AccountType.CUSTOM -> if(currencyChoice=="OTHER") customCurrency.trim().uppercase() else currencyChoice
                 else -> "CNY"
             }
-            val initial = if(actualCurrency=="CRYPTO") 0 else parseCents(balance) ?: return@EditDialog
+            if(actualCurrency!="CRYPTO" && !actualCurrency.matches(Regex("[A-Z]{2,8}"))) {
+                currencyError=true
+                return@EditDialog
+            }
+            val initial = if(actualCurrency=="CRYPTO") 0 else parseCurrencyAmount(balance,actualCurrency) ?: return@EditDialog
             save(AccountEntity(0,name.ifBlank{"未命名账户"},initial,initial,actualCurrency,
                 if(actualCurrency=="CNY")1_000_000 else 0,true,type,true))
         } else {
@@ -647,12 +678,15 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
             ChoiceRow(allowedTypes,type,{type=it}){accountTypeLabel(it)}
             if(type==AccountType.CUSTOM) {
                 Text("币种")
-                val currencies = if (profile.isEnabled(FeatureModule.PAYPAL_USD)) listOf("CNY","USD") else listOf("CNY")
-                ChoiceRow(currencies,currency,{currency=it}){currencyLabel(it)}
+                ChoiceRow(commonCurrencies+"OTHER",currencyChoice,{currencyChoice=it;currencyError=false}){if(it=="OTHER")"其他" else currencyLabel(it)}
+                if(currencyChoice=="OTHER") {
+                    TextFieldSimple(customCurrency,{customCurrency=it.uppercase();currencyError=false},"币种代码，例如 SGD")
+                    if(currencyError) Text("请输入 2—8 位英文字母币种代码",color=Red,style=MaterialTheme.typography.bodySmall)
+                }
             }
             if(type!=AccountType.CRYPTO) {
-                val unit = if(type==AccountType.PAYPAL || (type==AccountType.CUSTOM && currency=="USD")) "美元" else "人民币"
-                MoneyField(balance,{balance=it},"初始真实余额（$unit）")
+                val actualCurrency=when(type){AccountType.PAYPAL->"USD";AccountType.CUSTOM->if(currencyChoice=="OTHER")customCurrency.uppercase() else currencyChoice;else->"CNY"}
+                MoneyField(balance,{balance=it},"初始真实余额（${currencyLabel(actualCurrency)}）")
             }
         } else {
             Text("${accountTypeLabel(old.accountType)} · ${currencyLabel(old.currencyCode)}",color=Color.Gray)
@@ -681,6 +715,71 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
         MoneyField(usdt,{usdt=it},"USDT 数量")
         MoneyField(btc,{btc=it},"BTC 数量")
         MoneyField(ltc,{ltc=it},"ltc 数量")
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable private fun BalanceCalculatorDialog(
+    initialBalance:String,
+    currency:String,
+    close:()->Unit,
+    useResult:(String)->Unit,
+) {
+    var expression by remember(initialBalance,currency){mutableStateOf(initialBalance)}
+    var started by remember(initialBalance,currency){mutableStateOf(false)}
+    val result=parseCurrencyExpression(expression,currency)
+    fun input(key:String) {
+        when(key) {
+            "清空"->{expression=initialBalance;started=false}
+            "⌫"->{
+                expression=expression.dropLast(1).ifBlank{"0"}
+                started=true
+            }
+            "+","-"->{
+                expression=if(expression.lastOrNull() in listOf('+','-')) expression.dropLast(1)+key else expression+key
+                started=true
+            }
+            "="->result?.let{expression=currencyDecimal(it,currency);started=false}
+            else->{
+                expression=if(!started){if(key==".")"0." else key}else expression+key
+                started=true
+            }
+        }
+    }
+    BasicAlertDialog(onDismissRequest=close) {
+        Card(Modifier.fillMaxWidth().padding(12.dp)) {
+            Column(Modifier.padding(18.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
+                Text("余额加减计算器",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
+                Text("${currencyLabel(currency)} · 起始 $initialBalance",color=Color.Gray)
+                Surface(color=Paper,shape=RoundedCornerShape(10.dp),modifier=Modifier.fillMaxWidth()) {
+                    Text(expression,Modifier.padding(16.dp),style=MaterialTheme.typography.headlineSmall,textAlign=TextAlign.End,maxLines=2,overflow=TextOverflow.Ellipsis)
+                }
+                listOf(
+                    listOf("7","8","9","+"),
+                    listOf("4","5","6","-"),
+                    listOf("1","2","3","⌫"),
+                    listOf("0",".","清空","="),
+                ).forEach { row ->
+                    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(7.dp)) {
+                        row.forEach { key ->
+                            OutlinedButton(
+                                onClick={input(key)},
+                                modifier=Modifier.weight(1f),
+                                enabled=key!="." || currencyFractionDigits(currency)>0,
+                                contentPadding=PaddingValues(horizontal=4.dp),
+                            ){Text(key,maxLines=1)}
+                        }
+                    }
+                }
+                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.End) {
+                    TextButton(close){Text("取消")}
+                    Button(
+                        onClick={result?.let{useResult(currencyDecimal(it,currency))}},
+                        enabled=result!=null,
+                    ){Text("使用结果")}
+                }
+            }
+        }
     }
 }
 
@@ -744,8 +843,21 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
 @Composable private fun Section(text:String)=Text(text,fontWeight=FontWeight.Bold,style=MaterialTheme.typography.titleMedium)
 @Composable private fun EmptyCard(text:String)=Card{Text(text,Modifier.padding(16.dp),color=Color.Gray)}
 
-private fun parseCents(text:String):Long?=text.trim().toBigDecimalOrNull()?.movePointRight(2)?.setScale(0,RoundingMode.HALF_UP)?.longValueExact()
-internal fun parseCentsExpression(text:String):Long? {
+private fun parseCents(text:String):Long?=parseCurrencyAmount(text,"CNY")
+internal fun currencyFractionDigits(currency:String):Int=when(currency.uppercase()){
+    "USDT","BTC","LTC","CRYPTO"->8
+    "JPY","KRW","VND"->0
+    "KWD","BHD","JOD","OMR","TND"->3
+    else->2
+}
+internal fun parseCurrencyAmount(text:String,currency:String):Long?=runCatching {
+    text.trim().toBigDecimalOrNull()
+        ?.movePointRight(currencyFractionDigits(currency))
+        ?.setScale(0,RoundingMode.HALF_UP)
+        ?.longValueExact()
+}.getOrNull()
+internal fun parseCentsExpression(text:String):Long?=parseCurrencyExpression(text,"CNY")
+internal fun parseCurrencyExpression(text:String,currency:String):Long? {
     val input = text.filterNot(Char::isWhitespace)
     if (input.isEmpty()) return null
     var index = 0
@@ -763,28 +875,54 @@ internal fun parseCentsExpression(text:String):Long? {
         total = if (sign > 0) total + number else total - number
     }
     return runCatching {
-        total.movePointRight(2).setScale(0,RoundingMode.HALF_UP).longValueExact()
+        total.movePointRight(currencyFractionDigits(currency)).setScale(0,RoundingMode.HALF_UP).longValueExact()
     }.getOrNull()
 }
-private fun parseCryptoUnits(text:String):Long?=text.trim().toBigDecimalOrNull()?.movePointRight(8)?.setScale(0,RoundingMode.HALF_UP)?.longValueExact()
-private fun parseCurrencyAmount(text:String,currency:String):Long?=if(currency in listOf("USDT","BTC","LTC"))parseCryptoUnits(text) else parseCents(text)
-private fun decimal(cents:Long)="${cents/100}.${(cents.absoluteValue%100).toString().padStart(2,'0')}"
+internal fun adjustBalanceText(current:String,adjustment:String,currency:String,add:Boolean):String? {
+    val currentMinor=parseCurrencyExpression(current,currency)?:return null
+    val adjustmentMinor=parseCurrencyAmount(adjustment,currency)?:return null
+    val result=runCatching{if(add)Math.addExact(currentMinor,adjustmentMinor) else Math.subtractExact(currentMinor,adjustmentMinor)}.getOrNull()?:return null
+    return currencyDecimal(result,currency)
+}
+private fun parseCryptoUnits(text:String):Long?=parseCurrencyAmount(text,"BTC")
+private fun decimal(cents:Long)=currencyDecimal(cents,"CNY")
 private fun cryptoDecimal(units:Long)=java.math.BigDecimal.valueOf(units,8).stripTrailingZeros().toPlainString()
-private fun currencyDecimal(amount:Long,currency:String)=if(currency in listOf("USDT","BTC","LTC"))cryptoDecimal(amount) else decimal(amount)
+internal fun currencyDecimal(amount:Long,currency:String):String {
+    val digits=currencyFractionDigits(currency)
+    return if(digits==8) java.math.BigDecimal.valueOf(amount,digits).stripTrailingZeros().toPlainString()
+    else java.math.BigDecimal.valueOf(amount,digits).setScale(digits).toPlainString()
+}
 private fun money(cents:Long)="${if(cents<0)"-" else ""}¥${cents.absoluteValue/100}.${(cents.absoluteValue%100).toString().padStart(2,'0')}"
 private fun usdMoney(cents:Long)="${if(cents<0)"-" else ""}$${cents.absoluteValue/100}.${(cents.absoluteValue%100).toString().padStart(2,'0')}"
-private fun nativeMoney(cents:Long,currency:String)=when(currency){"USD"->"$${decimal(cents)}";"CNY"->"¥${decimal(cents)}";else->"$currency ${decimal(cents)}"}
-private fun currencyMoney(amount:Long,currency:String)=when(currency){"CNY"->money(amount);"USD"->usdMoney(amount);"LTC"->"ltc ${cryptoDecimal(amount)}";else->"$currency ${if(currency in listOf("USDT","BTC"))cryptoDecimal(amount) else decimal(amount)}"}
+private fun nativeMoney(amount:Long,currency:String)=currencyMoney(amount,currency)
+private fun currencyMoney(amount:Long,currency:String):String {
+    val sign=if(amount<0)"-" else ""
+    val number=currencyDecimal(amount.absoluteValue,currency)
+    return when(currency.uppercase()){
+        "CNY"->"${sign}¥$number"
+        "USD"->"${sign}$$number"
+        "EUR"->"${sign}€$number"
+        "GBP"->"${sign}£$number"
+        "JPY"->"${sign}JP¥$number"
+        "HKD"->"${sign}HK$$number"
+        "LTC"->"${sign}ltc $number"
+        else->"$sign${currency.uppercase()} $number"
+    }
+}
 private fun signedCurrencyMoney(amount:Long,currency:String)="${if(amount>=0)"+" else "-"}${currencyMoney(amount.absoluteValue,currency)}"
 private fun cryptoSummary(holdings:List<CryptoHoldingEntity>)=listOf("USDT","BTC","LTC").joinToString(" · "){symbol->
     val value=holdings.firstOrNull{it.symbol==symbol}?.amountUnits?:0
     "${if(symbol=="LTC")"ltc" else symbol} ${cryptoDecimal(value)}"
 }
+internal fun parseAccountIdCsv(csv:String):Set<Long> = csv.split(',').mapNotNull{it.trim().toLongOrNull()}.toSet()
 private fun monthDay(date:LocalDate)="${date.monthValue}/${date.dayOfMonth}"
 private fun entryLabel(t:EntryType)=when(t){EntryType.INCOME->"收入";EntryType.EXPENSE->"支出";EntryType.TRANSFER->"转账";EntryType.DEBT->"负债";EntryType.REFUND->"退款"}
 private fun repeatLabel(r:RepeatRule)=when(r){RepeatRule.NONE->"一次";RepeatRule.DAILY->"每天";RepeatRule.WEEKLY->"每周";RepeatRule.MONTHLY->"每月";RepeatRule.QUARTERLY->"每季度";RepeatRule.YEARLY->"每年"}
 private fun accountTypeLabel(t:AccountType)=when(t){AccountType.CASH->"现金";AccountType.WECHAT->"微信";AccountType.ALIPAY->"支付宝";AccountType.CMB->"银行";AccountType.PAYPAL->"PayPal";AccountType.CRYPTO->"数字货币";AccountType.CUSTOM->"自定义"}
-private fun currencyLabel(code:String)=when(code){"CNY"->"人民币";"USD"->"美元";"LTC"->"ltc";"CRYPTO"->"数字货币";else->code}
+private fun currencyLabel(code:String)=when(code.uppercase()){
+    "CNY"->"人民币";"USD"->"美元";"EUR"->"欧元";"GBP"->"英镑";"JPY"->"日元";"HKD"->"港币"
+    "LTC"->"ltc";"CRYPTO"->"数字货币";"OTHER"->"其他";else->code.uppercase()
+}
 private fun modeLabel(mode:AppMode)=when(mode){AppMode.SIMPLE->"极简";AppMode.CUSTOM->"定制";AppMode.FULL->"完整"}
 private fun modeDescription(mode:AppMode)=when(mode){
     AppMode.SIMPLE->"账户、固定收支、统一预算和预测，适合只想看现金流。"

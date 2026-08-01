@@ -6,6 +6,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
@@ -15,8 +16,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -33,6 +36,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.qiyue.cashflow.cashflow.CashFlowCalculator
 import com.qiyue.cashflow.cashflow.CashFlowDay
@@ -49,6 +53,9 @@ private val Red = Color(0xFFA64C41)
 private val Paper = Color(0xFFF4F0E8)
 private val Panel = Color(0xFFFAF8F3)
 private val SoftGreen = Color(0xFFD2E2DC)
+private val Ink = Color(0xFF202521)
+private val Muted = Color(0xFF77756F)
+private val Line = Color(0xFFCfd1CA)
 private enum class Tab(val title: String, val icon: String) {
     HOME("首页", "⌂"), PLAN("计划", "▤"), ACCOUNT("账户", "¥"), SETTINGS("设置", "⚙")
 }
@@ -60,10 +67,32 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
     var tab by remember { mutableStateOf(Tab.HOME) }
     MaterialTheme(colorScheme = lightColorScheme(
         primary = Green,
+        onPrimary = Color.White,
+        primaryContainer = SoftGreen,
+        onPrimaryContainer = Green,
+        secondary = Green,
+        onSecondary = Color.White,
+        secondaryContainer = SoftGreen,
+        onSecondaryContainer = Green,
+        tertiary = Green,
+        onTertiary = Color.White,
         error = Red,
-        surface = Panel,
+        onError = Color.White,
+        errorContainer = Color(0xFFF0DDD7),
+        onErrorContainer = Color(0xFF6F2D27),
         background = Paper,
-        surfaceVariant = SoftGreen,
+        onBackground = Ink,
+        surface = Panel,
+        onSurface = Ink,
+        surfaceVariant = Color(0xFFE9E6DE),
+        onSurfaceVariant = Muted,
+        outline = Color(0xFFBFC5BE),
+        outlineVariant = Line,
+        surfaceContainerLowest = Color.White,
+        surfaceContainerLow = Panel,
+        surfaceContainer = Panel,
+        surfaceContainerHigh = Color(0xFFF0EDE6),
+        surfaceContainerHighest = Color(0xFFE9E6DE),
     ),shapes=Shapes(
         extraSmall=RoundedCornerShape(3.dp),
         small=RoundedCornerShape(3.dp),
@@ -72,17 +101,8 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
         extraLarge=RoundedCornerShape(24.dp),
     )) {
         Scaffold(
-            topBar = { TopAppBar(title = {
-                Text(if(tab==Tab.HOME) "啥时候有钱" else tab.title,fontWeight=FontWeight.Bold)
-            }) },
-            bottomBar = { NavigationBar {
-                Tab.entries.forEach { item -> NavigationBarItem(
-                    selected = tab == item,
-                    onClick = { tab = item },
-                    icon = { Text(item.icon) },
-                    label = { Text(item.title) }
-                ) }
-            }},
+            topBar = { CashTopBar(tab) },
+            bottomBar = { CashBottomBar(tab) { tab = it } },
             containerColor = Paper,
             snackbarHost = { state.message?.let { msg ->
                 Snackbar(modifier=Modifier.padding(12.dp), action={
@@ -101,6 +121,39 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
         }
         if (state.isReady && !state.settings.onboardingCompleted) {
             OnboardingDialog(vm::completeOnboarding)
+        }
+    }
+}
+
+@Composable private fun CashTopBar(tab: Tab) = Row(
+    Modifier.fillMaxWidth().background(Paper).statusBarsPadding().height(62.dp).padding(horizontal=14.dp,vertical=8.dp),
+    horizontalArrangement=Arrangement.SpaceBetween,
+    verticalAlignment=Alignment.CenterVertically,
+) {
+    Column {
+        Text(if(tab==Tab.HOME) "啥时候有钱" else tab.title,fontWeight=FontWeight.ExtraBold,fontSize=20.sp,letterSpacing=(-.5).sp)
+        if(tab!=Tab.HOME) Text(when(tab){
+            Tab.PLAN->"固定、分期与未来临时收支"
+            Tab.ACCOUNT->"点击名称或余额直接修改"
+            Tab.SETTINGS->"显示、预测与本地数据"
+            else->""
+        },color=Muted,fontSize=10.sp)
+    }
+    if(tab==Tab.HOME) Text(homeDateLabel(LocalDate.now()),color=Muted,fontSize=10.sp)
+}
+
+@Composable private fun CashBottomBar(selected:Tab,onSelect:(Tab)->Unit) = Row(
+    Modifier.fillMaxWidth().background(Panel).border(1.dp,Line).navigationBarsPadding().height(58.dp).padding(top=4.dp),
+    horizontalArrangement=Arrangement.SpaceAround,
+) {
+    Tab.entries.forEach { item ->
+        Column(
+            Modifier.weight(1f).fillMaxHeight().clickable{onSelect(item)},
+            horizontalAlignment=Alignment.CenterHorizontally,
+            verticalArrangement=Arrangement.Center,
+        ) {
+            Text(item.icon,color=if(item==selected)Green else Muted,fontSize=17.sp)
+            Text(item.title,color=if(item==selected)Green else Muted,fontSize=10.sp,fontWeight=if(item==selected)FontWeight.Bold else FontWeight.Normal)
         }
     }
 }
@@ -165,32 +218,37 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
         .toSortedMap()
     val monthEnd = s.days.firstOrNull { it.date == LocalDate.now().withDayOfMonth(LocalDate.now().lengthOfMonth()) }?.balanceCents
         ?: s.endBalanceCents
-    LazyColumn(Modifier.fillMaxSize().padding(pad), contentPadding=PaddingValues(16.dp), verticalArrangement=Arrangement.spacedBy(12.dp)) {
+    LazyColumn(Modifier.fillMaxSize().padding(pad), contentPadding=PaddingValues(start=14.dp,end=14.dp,bottom=14.dp), verticalArrangement=Arrangement.spacedBy(10.dp)) {
         item {
             Card(
+                modifier=Modifier.fillMaxWidth().heightIn(min=116.dp),
                 shape=RoundedCornerShape(22.dp),
                 colors=CardDefaults.cardColors(containerColor=Green),
-            ) { Column(Modifier.padding(20.dp), verticalArrangement=Arrangement.spacedBy(7.dp)) {
-                Text("真实余额", color=Color.White.copy(alpha=.72f), fontWeight=FontWeight.SemiBold)
-                Text(money(s.currentBalanceCents), color=Color.White, style=MaterialTheme.typography.headlineLarge, fontWeight=FontWeight.Bold)
-                Text("人民币", color=Color.White.copy(alpha=.7f), style=MaterialTheme.typography.bodySmall)
-                if("USD" !in hiddenHomeCurrencies&&state.accounts.any{it.currencyCode=="USD"}) HomeCurrencyLine("美元",usdMoney(s.currentUsdCents))
-                otherCurrencyBalances.forEach { (currency, amount) -> HomeCurrencyLine(currencyLabel(currency),currencyMoney(amount,currency)) }
-                if("CRYPTO" !in hiddenHomeCurrencies&&state.accounts.any{it.currencyCode=="CRYPTO"}) HomeCurrencyLine("数字货币",cryptoSummary(state.cryptoHoldings))
-            }}
-        }
-        item { ChoiceRow(listOf(30,90,365), state.horizonDays, vm::setHorizon) { "${it}天" } }
-        item {
-            Card(shape=RoundedCornerShape(2.dp),colors=CardDefaults.cardColors(containerColor=Panel)) { Column(Modifier.padding(12.dp)) {
-                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween) {
-                    Text("未来余额走势", fontWeight=FontWeight.Bold)
-                    Text("人民币",color=Color.Gray,style=MaterialTheme.typography.bodySmall)
+            ) { Row(Modifier.fillMaxWidth().padding(horizontal=18.dp,vertical=15.dp),verticalAlignment=Alignment.Bottom) {
+                Column(Modifier.weight(1f)) {
+                    Text("真实余额", color=Color.White.copy(alpha=.72f), fontSize=11.sp)
+                    Spacer(Modifier.height(2.dp))
+                    Text(money(s.currentBalanceCents), color=Color.White, fontSize=32.sp, fontWeight=FontWeight.Bold, maxLines=1)
+                    Text("人民币", color=Color.White.copy(alpha=.65f), fontSize=10.sp)
                 }
-                Spacer(Modifier.height(10.dp))
-                ForecastChart(s.days, Modifier.fillMaxWidth().height(290.dp))
+                Column(horizontalAlignment=Alignment.End,verticalArrangement=Arrangement.spacedBy(3.dp)) {
+                    if("USD" !in hiddenHomeCurrencies&&state.accounts.any{it.currencyCode=="USD"}) CompactCurrencyLine("美元",usdMoney(s.currentUsdCents))
+                    otherCurrencyBalances.forEach { (currency, amount) -> CompactCurrencyLine(currencyLabel(currency),currencyMoney(amount,currency)) }
+                    if("CRYPTO" !in hiddenHomeCurrencies&&state.accounts.any{it.currencyCode=="CRYPTO"}) CompactCurrencyLine("数字货币",cryptoSummary(state.cryptoHoldings))
+                }
             }}
         }
-        item { Text("预计余额", fontWeight=FontWeight.Bold, style=MaterialTheme.typography.titleMedium) }
+        item { PageSectionHeader("余额走势") { PeriodSelector(state.horizonDays,vm::setHorizon) } }
+        item {
+            Card(Modifier.fillMaxWidth().border(1.dp,Line),shape=RoundedCornerShape(0.dp),colors=CardDefaults.cardColors(containerColor=Panel)) { Column(Modifier.padding(horizontal=7.dp,vertical=7.dp)) {
+                ForecastChart(s.days, Modifier.fillMaxWidth().height(212.dp))
+                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween) {
+                    Text("点按曲线查看当天明细",color=Muted,fontSize=9.sp)
+                    Text("月底预计 ${money(monthEnd)}",color=Muted,fontSize=9.sp)
+                }
+            }}
+        }
+        item { PageSectionHeader("预计余额") { Text("根据当前计划计算",color=Muted,fontSize=9.sp) } }
         item {
             ForecastMetricsGrid(
                 monthEnd=money(monthEnd),
@@ -205,31 +263,40 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
             s.days.firstOrNull{it.date==s.firstShortageDate}?.balanceCents,
             state.settings.showFinanceTips,
         ) }
-        item { Text("接下来会发生什么", fontWeight=FontWeight.Bold, style=MaterialTheme.typography.titleMedium) }
+        item { PageSectionHeader("接下来会发生什么") }
         val upcoming = s.days.flatMap { d -> d.events.filterNot { it.kind == "预算" }.map { d to it } }.take(20)
         if (upcoming.isEmpty()) item { EmptyCard("暂无未来款项，请到“计划”添加固定收支。") }
         else items(upcoming) { (day,event) ->
-            Card { Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment=Alignment.CenterVertically) {
+            Card(Modifier.fillMaxWidth().border(1.dp,Line),shape=RoundedCornerShape(0.dp),colors=CardDefaults.cardColors(containerColor=Panel)) { Row(Modifier.fillMaxWidth().padding(horizontal=12.dp,vertical=10.dp), verticalAlignment=Alignment.CenterVertically) {
+                Text(day.date.dayOfMonth.toString().padStart(2,'0'),fontSize=18.sp,fontWeight=FontWeight.Bold,modifier=Modifier.width(38.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(event.name, fontWeight=FontWeight.SemiBold)
-                    Text("${day.date} · ${event.kind} · ${event.accountName}", color=Color.Gray, style=MaterialTheme.typography.bodySmall)
+                    Text(event.name, fontWeight=FontWeight.SemiBold,fontSize=12.sp)
+                    Text("${day.date.monthValue}月 · ${event.kind} · ${event.accountName}", color=Muted, fontSize=9.sp)
                 }
                 Text(if(event.amountCents==0L) "转账" else signedCurrencyMoney(event.amountCents,event.currencyCode),
-                    color=if(event.amountCents<0) Red else Green, fontWeight=FontWeight.Bold)
+                    color=if(event.amountCents<0) Red else Green, fontWeight=FontWeight.Bold,fontSize=12.sp)
             }}
         }
     }
 }
 
-@Composable private fun HomeCurrencyLine(label:String,value:String) = Row(
-    Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically
-) {
-    Text(label,color=Color.White.copy(alpha=.68f),style=MaterialTheme.typography.bodySmall)
-    Text(value,color=Color.White,fontWeight=FontWeight.SemiBold,style=MaterialTheme.typography.bodyMedium)
+@Composable private fun CompactCurrencyLine(label:String,value:String) = Text("$label  $value",color=Color.White.copy(alpha=.76f),fontSize=9.sp,maxLines=1)
+
+@Composable private fun PageSectionHeader(title:String,trailing:@Composable ()->Unit={}) = Row(
+    Modifier.fillMaxWidth().heightIn(min=28.dp),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.Bottom
+) { Text(title,fontWeight=FontWeight.Bold,fontSize=13.sp);trailing() }
+
+@Composable private fun PeriodSelector(selected:Int,onSelect:(Int)->Unit) = Row(horizontalArrangement=Arrangement.spacedBy(14.dp)) {
+    listOf(30,90,365).forEach { value ->
+        Column(Modifier.clickable{onSelect(value)},horizontalAlignment=Alignment.CenterHorizontally) {
+            Text("${value}天",color=if(value==selected)Green else Muted,fontSize=10.sp,fontWeight=if(value==selected)FontWeight.Bold else FontWeight.Normal)
+            Spacer(Modifier.width(24.dp).height(2.dp).background(if(value==selected)Green else Color.Transparent))
+        }
+    }
 }
 
 @Composable private fun ForecastMetricsGrid(monthEnd:String,lowest:String,highest:String,budget:String,warn:Boolean) {
-    Column(Modifier.fillMaxWidth().background(Panel)) {
+    Column(Modifier.fillMaxWidth().background(Panel).border(1.dp,Line)) {
         Row(Modifier.fillMaxWidth()) {
             ForecastMetricCell("月底",monthEnd,Modifier.weight(1f),false)
             ForecastMetricCell("谷底",lowest,Modifier.weight(1f),warn)
@@ -242,10 +309,10 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
 }
 
 @Composable private fun ForecastMetricCell(label:String,value:String,modifier:Modifier,warn:Boolean) = Column(
-    modifier.height(92.dp).background(Panel).padding(13.dp),verticalArrangement=Arrangement.spacedBy(7.dp)
+    modifier.height(80.dp).background(Panel).border(.5.dp,Line).padding(horizontal=12.dp,vertical=9.dp),verticalArrangement=Arrangement.spacedBy(4.dp)
 ) {
-    Text(label,color=Color.Gray,style=MaterialTheme.typography.bodySmall)
-    Text(value,color=if(warn)Red else Color.Unspecified,fontWeight=FontWeight.Bold,style=MaterialTheme.typography.bodyMedium)
+    Text(label,color=Muted,fontSize=9.sp)
+    Text(value,color=if(warn)Red else Ink,fontWeight=FontWeight.Bold,fontSize=12.sp,lineHeight=15.sp)
 }
 
 private val shortageMessages = listOf(
@@ -261,16 +328,16 @@ private val shortageMessages = listOf(
 @Composable private fun ShortageCard(date:LocalDate?,balanceOnDate:Long?,showTip:Boolean) {
     val message=remember(date){date?.let{shortageMessages[(it.toEpochDay().absoluteValue%shortageMessages.size).toInt()]}}
     Card(
+        modifier=Modifier.fillMaxWidth(),
         shape=RoundedCornerShape(2.dp),
-        colors=CardDefaults.cardColors(containerColor=if(date==null)SoftGreen else Color(0xFFF0DDD7)),
-    ) { Column(Modifier.fillMaxWidth().padding(18.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-        Text("现金为负",fontWeight=FontWeight.Bold,style=MaterialTheme.typography.titleMedium,color=if(date==null)Green else Red)
-        if(date==null) Text("当前预测范围及长期检查中：无",fontWeight=FontWeight.SemiBold)
+        colors=CardDefaults.cardColors(containerColor=if(date==null)SoftGreen else Color(0xFF91483E)),
+    ) { Column(Modifier.fillMaxWidth().padding(horizontal=14.dp,vertical=13.dp),verticalArrangement=Arrangement.spacedBy(5.dp)) {
+        if(date==null) Text("长期预测检查：现金为负日期无",fontWeight=FontWeight.SemiBold,fontSize=11.sp,color=Green)
         else {
-            Text("首次出现：$date",fontWeight=FontWeight.Bold,style=MaterialTheme.typography.titleLarge,color=Red)
-            balanceOnDate?.let{Text("当日预计 ${money(it)}",color=Red)}
-            if(showTip&&message!=null) Text(message,fontWeight=FontWeight.SemiBold)
-            Text("请提前检查发生日期、推迟非必要支出，或补充确定的未来收入。",color=Color(0xFF6F4A43),style=MaterialTheme.typography.bodySmall)
+            Text("${monthDay(date)} 起现金预计为负",fontWeight=FontWeight.Bold,fontSize=16.sp,color=Color.White)
+            balanceOnDate?.let{Text("预计缺口 ${money(it.absoluteValue)}",color=Color(0xFFF0D1CB),fontSize=10.sp)}
+            if(showTip&&message!=null) Text(message,fontWeight=FontWeight.SemiBold,color=Color.White,fontSize=10.sp)
+            Text("行动提醒：提前检查日期，推迟非必要支出或补充确定收入。",color=Color(0xFFF0D1CB),fontSize=9.sp)
         }
     }}
 }
@@ -285,11 +352,11 @@ private val shortageMessages = listOf(
     Column(modifier, verticalArrangement=Arrangement.spacedBy(5.dp)) {
         Row(Modifier.weight(1f).fillMaxWidth()) {
             Column(
-                Modifier.width(62.dp).fillMaxHeight(),
+                Modifier.width(47.dp).fillMaxHeight(),
                 verticalArrangement=Arrangement.SpaceBetween
             ) {
                 yTicks.forEach { tick ->
-                    Text(money(tick.toLong()), color=Color.Gray, style=MaterialTheme.typography.labelSmall, maxLines=1)
+                    Text(axisMoney(tick.toLong()), color=Muted, fontSize=8.sp, maxLines=1)
                 }
             }
             Canvas(
@@ -346,20 +413,16 @@ private val shortageMessages = listOf(
         }
         if(days.isNotEmpty()) {
             Row(Modifier.fillMaxWidth()) {
-                Spacer(Modifier.width(62.dp))
+                Spacer(Modifier.width(47.dp))
                 listOf(0,days.lastIndex/4,days.lastIndex/2,days.lastIndex*3/4,days.lastIndex).forEach { index ->
                     Text(monthDay(days[index].date),Modifier.weight(1f),color=Color.Gray,style=MaterialTheme.typography.labelSmall,textAlign=TextAlign.Center,maxLines=1)
                 }
             }
         }
-        selectedIndex?.let { index ->
-            Text(
-                "${days[index].date} · ${money(days[index].balanceCents)}",
-                Modifier.fillMaxWidth(),
-                color=Green,
-                fontWeight=FontWeight.SemiBold
-            )
-        } ?: Text("点按曲线查看某一天", color=Color.Gray, style=MaterialTheme.typography.bodySmall)
+        selectedIndex?.let { index -> Text(
+            "${days[index].date} · ${money(days[index].balanceCents)}",
+            Modifier.fillMaxWidth(),color=Green,fontWeight=FontWeight.SemiBold,fontSize=10.sp
+        ) }
     }
 }
 
@@ -377,19 +440,24 @@ private val shortageMessages = listOf(
     val visiblePlans = state.plans.filter { it.type != EntryType.TRANSFER }
     val occurrenceCalculator = remember { CashFlowCalculator() }
     val today = LocalDate.now()
-    LazyColumn(Modifier.fillMaxSize().padding(pad), contentPadding=PaddingValues(16.dp), verticalArrangement=Arrangement.spacedBy(10.dp)) {
-        item { Box {
-            Button({showAddMenu=true}){Text("＋ 新增")}
+    LazyColumn(Modifier.fillMaxSize().padding(pad), contentPadding=PaddingValues(start=14.dp,end=14.dp,bottom=14.dp), verticalArrangement=Arrangement.spacedBy(9.dp)) {
+        item { Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.End) { Box {
+            Button({showAddMenu=true},Modifier.height(36.dp),shape=RoundedCornerShape(0.dp),contentPadding=PaddingValues(horizontal=16.dp,vertical=0.dp)){Text("新增",fontSize=11.sp)}
             DropdownMenu(showAddMenu,{showAddMenu=false}) {
                 DropdownMenuItem({Column{Text("固定款项");Text("工资、房租等周期款项",style=MaterialTheme.typography.bodySmall,color=Color.Gray)}},{planEdit=null;newPlanIsInstallment=false;showPlan=true;showAddMenu=false})
                 DropdownMenuItem({Column{Text("分期");Text("按每期金额或总额计算",style=MaterialTheme.typography.bodySmall,color=Color.Gray)}},{planEdit=null;newPlanIsInstallment=true;showPlan=true;showAddMenu=false})
                 DropdownMenuItem({Column{Text("未来临时收支");Text("一次性影响未来预测",style=MaterialTheme.typography.bodySmall,color=Color.Gray)}},{adjustmentEdit=null;showAdjustment=true;showAddMenu=false})
             }
-        }}
-        item { Section("固定款项与分期") }
+        }}}
+        item { PageSectionHeader("本期预算") }
+        if(state.budgets.isEmpty()) item {
+            EmptyCard("暂无预算。点击这里设置每月总预算。",onClick={budgetEdit=null;showBudget=true})
+        }
+        items(state.budgets.take(1), key={"budget-${it.id}"}) { b -> BudgetSummaryCard(b) { budgetEdit=b;showBudget=true } }
+        item { PageSectionHeader("固定款项与分期") }
         if(visiblePlans.isEmpty()) item { EmptyCard("还没有固定款项。先添加工资或房租。") }
         items(visiblePlans, key={"plan-${it.id}"}) { p ->
-            val installment=p.installmentTotal>1
+            val installment=isInstallmentPlan(p)
             val next=remember(p,today){nextPlanDate(p,today,occurrenceCalculator)}
             DataCard(
                 title=p.name,
@@ -405,21 +473,7 @@ private val shortageMessages = listOf(
                 onDelete={delete="“${p.name}”" to {vm.deletePlan(p.id)}}
             )
         }
-        item { Section("总预算") }
-        if(state.budgets.isEmpty()) item {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                EmptyCard("暂无预算。预算会作为未来支出进入预测。")
-                OutlinedButton({budgetEdit=null;showBudget=true}, Modifier.fillMaxWidth()){Text("设置预算")}
-            }
-        }
-        items(state.budgets.take(1), key={"budget-${it.id}"}) { b -> DataCard(
-            b.name,
-            "每月自动续期 · 点击“编辑”可修改总预算或剩余预算",
-            "剩余 ${money(b.remainingCents)}",
-            b.isActive, {vm.saveBudget(b.copy(isActive=!b.isActive))}, {budgetEdit=b;showBudget=true},
-            {delete="“${b.name}”" to {vm.deleteBudget(b.id)}})
-        }
-        item { Section("未来临时收支") }
+        item { PageSectionHeader("未来临时收支") }
         if(temporaryAdjustments.isEmpty()) item { EmptyCard("暂无未来临时收支。实际余额有偏差时，直接修改账户真实余额即可。") }
         items(temporaryAdjustments, key={"adjustment-${it.id}"}) { a -> DataCard(
             a.name, buildString {
@@ -445,6 +499,28 @@ private val shortageMessages = listOf(
     delete?.let { (name, action) -> ConfirmDialog("删除$name？","删除后无法恢复。",{delete=null},{action();delete=null}) }
 }
 
+@Composable private fun BudgetSummaryCard(budget:BudgetEntity,onEdit:()->Unit) {
+    val used=(budget.totalCents-budget.remainingCents).coerceAtLeast(0)
+    Column(Modifier.fillMaxWidth().background(Panel).border(1.dp,Line).clickable(onClick=onEdit)) {
+        Row(Modifier.fillMaxWidth()) {
+            BudgetCell("总预算",money(budget.totalCents),"点击金额可修改",Modifier.weight(1f))
+            BudgetCell("预算剩余",money(budget.remainingCents),"点击金额可修改",Modifier.weight(1f))
+        }
+        Row(Modifier.fillMaxWidth()) {
+            BudgetCell("已经使用",money(used),"按当前剩余计算",Modifier.weight(1f))
+            BudgetCell("预算周期",if(budget.period==BudgetPeriod.MONTHLY)"每月" else if(budget.period==BudgetPeriod.WEEKLY)"每周" else "自定义","点击此卡片编辑",Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable private fun BudgetCell(label:String,value:String,hint:String,modifier:Modifier) = Column(
+    modifier.height(74.dp).border(.5.dp,Line).padding(horizontal=12.dp,vertical=9.dp),verticalArrangement=Arrangement.spacedBy(3.dp)
+) {
+    Text(label,color=Muted,fontSize=9.sp)
+    Text(value,color=Ink,fontSize=16.sp,fontWeight=FontWeight.Bold,maxLines=1)
+    Text(hint,color=Muted,fontSize=8.sp,maxLines=1)
+}
+
 @Composable private fun AccountPage(state: CashFlowUiState, pad: PaddingValues, vm: CashFlowViewModel) {
     var showEditor by remember { mutableStateOf(false) }
     var showCryptoEditor by remember { mutableStateOf(false) }
@@ -454,11 +530,10 @@ private val shortageMessages = listOf(
         parseAccountIdCsv(state.settings.hiddenAccountIdsCsv)
     }
     val visibleAccounts = state.accounts.filter { it.id !in hiddenAccountIds }
-    LazyColumn(Modifier.fillMaxSize().padding(pad), contentPadding=PaddingValues(16.dp), verticalArrangement=Arrangement.spacedBy(10.dp)) {
-        item { Button({showEditor=true},Modifier.fillMaxWidth()){Text("＋ 增加账户")} }
+    LazyColumn(Modifier.fillMaxSize().padding(pad), contentPadding=PaddingValues(start=14.dp,end=14.dp,bottom=14.dp), verticalArrangement=Arrangement.spacedBy(0.dp)) {
+        item { PageSectionHeader("我的账户") { Text("按设置中的显示项目",color=Muted,fontSize=9.sp) } }
         if(visibleAccounts.isEmpty()) item { EmptyCard("没有需要显示的账户，可到“设置”恢复隐藏账户。") }
         items(visibleAccounts, key={it.id}) { a ->
-            val endNative = state.summary.days.lastOrNull()?.accountBalancesCents?.get(a.name) ?: a.currentBalanceCents
             val transferTargets = state.accounts.filter {
                 it.id!=a.id && it.currencyCode==a.currencyCode && it.currencyCode!="CRYPTO"
             }
@@ -477,52 +552,52 @@ private val shortageMessages = listOf(
                     if(balance!=a.currentBalanceCents) vm.calibrate(a,balance)
                 }
             }
-            Card { Column(Modifier.padding(15.dp), verticalArrangement=Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
+            Card(Modifier.fillMaxWidth().border(1.dp,Line),shape=RoundedCornerShape(0.dp),colors=CardDefaults.cardColors(containerColor=Panel)) { Column(Modifier.padding(horizontal=11.dp,vertical=10.dp), verticalArrangement=Arrangement.spacedBy(7.dp)) {
+                Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
+                BasicTextField(
                     value=nameText,
                     onValueChange={nameText=it},
-                    modifier=Modifier.fillMaxWidth().onFocusChanged { focusState ->
+                    modifier=Modifier.weight(1f).onFocusChanged { focusState ->
                         if(nameWasFocused&&!focusState.isFocused) saveName()
                         nameWasFocused=focusState.isFocused
                     },
-                    label={Text("账户名称")},
-                    singleLine=true,
+                    singleLine=true,textStyle=MaterialTheme.typography.bodyMedium.copy(color=Ink,fontWeight=FontWeight.Bold,fontSize=12.sp),
                     keyboardOptions=KeyboardOptions(imeAction=ImeAction.Done),
                     keyboardActions=KeyboardActions(onDone={saveName();focusManager.clearFocus()})
                 )
-                Text("${currencyLabel(a.currencyCode)} · ${accountTypeLabel(a.accountType)}", color=Color.Gray)
+                Text("点击修改",color=Muted,fontSize=8.sp)
+                Spacer(Modifier.width(8.dp))
+                Text(currencyLabel(a.currencyCode), color=Muted,fontSize=8.sp)
+                }
                 if(a.currencyCode=="CRYPTO") {
-                    Text(cryptoSummary(state.cryptoHoldings),fontWeight=FontWeight.Bold)
+                    Text(cryptoSummary(state.cryptoHoldings),color=Muted,fontSize=9.sp)
                 }
                 if(a.currencyCode!="CRYPTO") {
-                    OutlinedTextField(
+                    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(7.dp),verticalAlignment=Alignment.CenterVertically) {
+                    Row(
+                        Modifier.weight(1f).height(44.dp).border(1.dp,Color(0xFFBFC5BE),RoundedCornerShape(4.dp)).background(Color.White).padding(horizontal=10.dp),
+                        verticalAlignment=Alignment.CenterVertically,
+                    ) {
+                    Text(when(a.currencyCode){"CNY"->"¥";"USD"->"$";else->a.currencyCode},color=Muted,fontSize=13.sp)
+                    Spacer(Modifier.width(6.dp))
+                    BasicTextField(
                         value=balanceText,
                         onValueChange={balanceText=it},
-                        modifier=Modifier.fillMaxWidth().onFocusChanged { focusState ->
+                        modifier=Modifier.weight(1f).onFocusChanged { focusState ->
                             if(balanceWasFocused && !focusState.isFocused) saveBalance()
                             balanceWasFocused=focusState.isFocused
                         },
-                        label={Text("余额")},
+                        textStyle=MaterialTheme.typography.bodyMedium.copy(color=Ink,fontWeight=FontWeight.Bold,fontSize=14.sp),
                         singleLine=true,
                         keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Decimal,imeAction=ImeAction.Done),
                         keyboardActions=KeyboardActions(onDone={saveBalance();focusManager.clearFocus()})
                     )
-                    OutlinedButton({showCalculator=true},Modifier.fillMaxWidth()){Text("打开计算器")}
-                    Text("直接修改后按键盘“完成”即可保存。", color=Color.Gray, style=MaterialTheme.typography.bodySmall)
-                    Text("未来${state.horizonDays}天预计余额 ${nativeMoney(endNative,a.currencyCode)}", color=Green)
+                    }
+                    OutlinedButton({showCalculator=true},Modifier.height(40.dp),shape=RoundedCornerShape(0.dp),contentPadding=PaddingValues(horizontal=9.dp)){Text("计算器",fontSize=9.sp)}
+                    OutlinedButton({transferSource=a},Modifier.height(40.dp),shape=RoundedCornerShape(0.dp),contentPadding=PaddingValues(horizontal=9.dp),enabled=transferTargets.isNotEmpty()){Text("转账",fontSize=9.sp)}
+                    }
                 }
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement=Arrangement.spacedBy(6.dp)) {
-                    if(a.currencyCode=="CRYPTO") AssistChip({showCryptoEditor=true},{Text("修改持仓")})
-                    if(a.currencyCode!="CRYPTO") AssistChip(
-                        onClick={transferSource=a},
-                        label={Text("转账")},
-                        enabled=transferTargets.isNotEmpty()
-                    )
-                }
-                if(a.currencyCode!="CRYPTO"&&transferTargets.isEmpty()) Text(
-                    "没有其他${currencyLabel(a.currencyCode)}账户，暂时无法转账。",
-                    color=Color.Gray,style=MaterialTheme.typography.bodySmall
-                )
+                if(a.currencyCode=="CRYPTO") OutlinedButton({showCryptoEditor=true},shape=RoundedCornerShape(0.dp),contentPadding=PaddingValues(horizontal=10.dp,vertical=5.dp)){Text("修改持仓",fontSize=9.sp)}
             }}
             if(showCalculator) BalanceCalculatorDialog(
                 balanceText,a.currencyCode,{showCalculator=false}
@@ -532,6 +607,7 @@ private val shortageMessages = listOf(
                 showCalculator=false
             }
         }
+        item { OutlinedButton({showEditor=true},Modifier.fillMaxWidth().padding(top=14.dp),shape=RoundedCornerShape(0.dp)){Text("增加账户",fontSize=11.sp)} }
     }
     if(showEditor) AccountDialog({showEditor=false}){vm.saveAccount(it);showEditor=false}
     transferSource?.let { source -> AccountTransferDialog(
@@ -557,6 +633,7 @@ private val shortageMessages = listOf(
         mutableStateOf(parseAccountIdCsv(state.settings.hiddenAccountIdsCsv))
     }
     var showFinanceTips by remember(state.settings.showFinanceTips) { mutableStateOf(state.settings.showFinanceTips) }
+    var showAccountVisibility by remember { mutableStateOf(false) }
     val homeCurrencies=state.accounts.map{it.currencyCode}.filter{it!="CNY"}.distinct().sortedWith(
         compareBy<String>{when(it){"USD"->1;"CRYPTO"->99;else->10}}.thenBy{it}
     )
@@ -568,76 +645,82 @@ private val shortageMessages = listOf(
     val open = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         uri?.let { runCatching { context.contentResolver.openInputStream(it)?.bufferedReader()?.use { r -> r.readText() } }.getOrNull()?.let(vm::restoreJson) }
     }
-    LazyColumn(Modifier.fillMaxSize().padding(pad), contentPadding=PaddingValues(16.dp), verticalArrangement=Arrangement.spacedBy(12.dp)) {
-        item { Card { Column(Modifier.padding(16.dp), verticalArrangement=Arrangement.spacedBy(12.dp)) {
-            Section("预测设置")
-            Text("默认预测周期")
-            ChoiceRow(listOf(30,90,365),days,{days=it}){"${it}天"}
-            TextFieldSimple(budgetStartDay,{budgetStartDay=it},"每月预算从几号开始（1—28）",KeyboardType.Number)
-            Text("当前按每月 ${budgetStartDay.toIntOrNull()?.coerceIn(1,28) ?: 21} 日至次月前一天计算。",color=Color.Gray,style=MaterialTheme.typography.bodySmall)
-            HorizontalDivider()
-            Section("财务提示")
-            Row(verticalAlignment=Alignment.CenterVertically) {
-                Checkbox(showFinanceTips,{showFinanceTips=it})
-                Text("在相关场景显示简短财务常识")
+    LazyColumn(Modifier.fillMaxSize().padding(pad),contentPadding=PaddingValues(start=14.dp,end=14.dp,bottom=14.dp),verticalArrangement=Arrangement.spacedBy(7.dp)) {
+        item { SettingsGroup("显示") {
+            homeCurrencies.forEach { currency -> SettingToggleRow(
+                "首页显示${currencyLabel(currency)}",currency !in hiddenHomeCurrencies
+            ){visible->hiddenHomeCurrencies=if(visible)hiddenHomeCurrencies-currency else hiddenHomeCurrencies+currency} }
+            if(homeCurrencies.isEmpty()) SettingTextRow("首页显示币种","目前只有人民币账户")
+            SettingActionRow(
+                "账户页显示项目",
+                state.accounts.filter{it.id !in hiddenAccountIds}.joinToString("、"){it.name}.ifBlank{"未选择"}
+            ){showAccountVisibility=true}
+        } }
+        item { SettingsGroup("预测") {
+            Column(Modifier.fillMaxWidth().padding(horizontal=12.dp,vertical=9.dp)) {
+                Text("默认预测周期",fontSize=11.sp,fontWeight=FontWeight.SemiBold)
+                Spacer(Modifier.height(6.dp));PeriodSelector(days){days=it}
             }
-            Text("只解释现金流和风险，不推荐任何理财产品。",color=Color.Gray,style=MaterialTheme.typography.bodySmall)
-            HorizontalDivider()
-            Section("首页显示币种")
-            Text("人民币固定显示",color=Color.Gray)
-            homeCurrencies.forEach { currency ->
-                Row(verticalAlignment=Alignment.CenterVertically) {
-                    Checkbox(currency !in hiddenHomeCurrencies,{visible->
-                        hiddenHomeCurrencies=if(visible)hiddenHomeCurrencies-currency else hiddenHomeCurrencies+currency
-                    })
-                    Text(currencyLabel(currency))
-                }
+            HorizontalDivider(color=Line)
+            Row(Modifier.fillMaxWidth().padding(horizontal=12.dp,vertical=7.dp),verticalAlignment=Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)){Text("每月预算起始日",fontSize=11.sp,fontWeight=FontWeight.SemiBold);Text("1—28 日",fontSize=8.sp,color=Muted)}
+                OutlinedTextField(budgetStartDay,{budgetStartDay=it},Modifier.width(76.dp).height(48.dp),singleLine=true,keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Number),suffix={Text("日",fontSize=10.sp)})
             }
-            if(homeCurrencies.isEmpty()) Text("目前只有人民币账户。",color=Color.Gray)
-            Text("不同币种分别显示，不做汇率换算。",color=Color.Gray,style=MaterialTheme.typography.bodySmall)
-            HorizontalDivider()
-            Section("账户页显示")
-            if (state.accounts.isEmpty()) Text("还没有账户。",color=Color.Gray)
-            state.accounts.forEach { account ->
-                Row(verticalAlignment=Alignment.CenterVertically) {
-                    Checkbox(account.id !in hiddenAccountIds,{ visible ->
-                        hiddenAccountIds = if (visible) hiddenAccountIds - account.id else hiddenAccountIds + account.id
-                    })
-                    Column {
-                        Text(account.name)
-                        Text(currencyLabel(account.currencyCode),color=Color.Gray,style=MaterialTheme.typography.bodySmall)
-                    }
-                }
+            HorizontalDivider(color=Line)
+            SettingToggleRow("现金预警提示语",showFinanceTips,"预警期间保持不变"){showFinanceTips=it}
+            Button({vm.updateSettings(days,budgetStartDay.toIntOrNull()?:21,hiddenHomeCurrencies,hiddenAccountIds,showFinanceTips)},Modifier.fillMaxWidth().padding(10.dp),shape=RoundedCornerShape(0.dp)){Text("保存设置",fontSize=11.sp)}
+        } }
+        item { SettingsGroup("数据") {
+            SettingActionRow("导出完整备份","JSON 文件保存到本机"){create.launch("现金流预测备份-${LocalDate.now()}.json")}
+            SettingActionRow("从备份恢复","恢复会替换当前数据"){open.launch(arrayOf("application/json","text/*"))}
+        } }
+        item { SettingsGroup("危险操作") { SettingActionRow("清空所有测试数据","需要再次确认",Red){confirmClear=true} } }
+        item { SettingsGroup("关于") {
+            Column(Modifier.fillMaxWidth().padding(12.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
+                Text("啥时候有钱 ${BuildConfig.VERSION_NAME}",fontSize=11.sp,fontWeight=FontWeight.Bold)
+                Text("该版本为简易版，仅供简单计算现金状况，暂未包含理财统计功能。如有存款、基金等投资，建议用“未来临时收支”功能替代。",color=Muted,fontSize=9.sp,lineHeight=14.sp)
+                Text("开发者：尚宸鸣 | 使用 Codex 协助开发",fontSize=9.sp)
+                Text("项目地址：github.com/7panni/show-me-the-money ›",Modifier.clickable{uriHandler.openUri("https://github.com/7panni/show-me-the-money")}.padding(vertical=5.dp),color=Green,fontSize=9.sp)
+                Text("Blog：7panni.com ›",Modifier.clickable{uriHandler.openUri("https://7panni.com")}.padding(vertical=5.dp),color=Green,fontSize=9.sp)
+                Text("独立安装 · 数据仅保存在本机",color=Muted,fontSize=8.sp)
             }
-            Text("这里只控制账户页是否显示，不影响余额和预测。",color=Color.Gray,style=MaterialTheme.typography.bodySmall)
-            Button({vm.updateSettings(
-                days,budgetStartDay.toIntOrNull()?:21,hiddenHomeCurrencies,hiddenAccountIds,showFinanceTips
-            )},Modifier.fillMaxWidth()){Text("保存全部设置")}
-        }}}
-        item { Card { Column(Modifier.padding(16.dp), verticalArrangement=Arrangement.spacedBy(10.dp)) {
-            Section("本地数据")
-            Button({create.launch("现金流预测备份-${LocalDate.now()}.json")},Modifier.fillMaxWidth()){Text("导出 JSON 完整备份")}
-            OutlinedButton({open.launch(arrayOf("application/json","text/*"))},Modifier.fillMaxWidth()){Text("从 JSON 恢复")}
-            OutlinedButton({confirmClear=true},Modifier.fillMaxWidth(),colors=ButtonDefaults.outlinedButtonColors(contentColor=Red)){Text("清空测试数据")}
-            Text("所有数据只保存在本机；恢复会替换测试版当前数据。",color=Color.Gray,style=MaterialTheme.typography.bodySmall)
-        }}}
-        item { Card { Column(Modifier.padding(16.dp)) {
-            Section("版本信息")
-            Text("啥时候有钱 ${BuildConfig.VERSION_NAME.removeSuffix("-test")}")
-            Text("该版本为简易版，仅供简单计算现金状况，暂未包含理财统计功能。",color=Color.Gray)
-            Text("如有存款、基金等投资，建议用“未来临时收支”功能替代。",color=Color.Gray)
-            Spacer(Modifier.height(8.dp))
-            Text("开发者：尚宸鸣 | 使用 Codex 协助开发")
-            TextButton({uriHandler.openUri("https://github.com/7panni/show-me-the-money")},contentPadding=PaddingValues(0.dp)) {
-                Text("项目地址：github.com/7panni/show-me-the-money")
-            }
-            TextButton({uriHandler.openUri("https://7panni.com")},contentPadding=PaddingValues(0.dp)) {
-                Text("Blog：7panni.com")
-            }
-            Text("独立安装 · 数据仅保存在本机",color=Color.Gray)
-        }}}
+        } }
+    }
+    if(showAccountVisibility) EditDialog("账户页显示",{showAccountVisibility=false},{
+        vm.updateSettings(days,budgetStartDay.toIntOrNull()?:21,hiddenHomeCurrencies,hiddenAccountIds,showFinanceTips)
+        showAccountVisibility=false
+    }) {
+        Text("选择要在账户页显示的项目",color=Muted,fontSize=10.sp)
+        state.accounts.forEach { account -> SettingToggleRow(
+            account.name,account.id !in hiddenAccountIds,currencyLabel(account.currencyCode)
+        ){visible->hiddenAccountIds=if(visible)hiddenAccountIds-account.id else hiddenAccountIds+account.id} }
     }
     if(confirmClear) ConfirmDialog("清空全部测试数据？","账户、计划、预算和修正都会删除。",{confirmClear=false},{vm.clearAll();confirmClear=false})
+}
+
+@Composable private fun SettingsGroup(title:String,content:@Composable ColumnScope.()->Unit) = Column(Modifier.fillMaxWidth()) {
+    Text(title,Modifier.padding(start=2.dp,top=8.dp,bottom=5.dp),color=Muted,fontSize=9.sp)
+    Column(Modifier.fillMaxWidth().background(Panel).border(1.dp,Line),content=content)
+}
+
+@Composable private fun SettingToggleRow(title:String,checked:Boolean,subtitle:String?=null,onChecked:(Boolean)->Unit) = Row(
+    Modifier.fillMaxWidth().heightIn(min=44.dp).padding(horizontal=12.dp,vertical=5.dp),verticalAlignment=Alignment.CenterVertically
+) {
+    Column(Modifier.weight(1f)){Text(title,fontSize=11.sp,fontWeight=FontWeight.SemiBold);subtitle?.let{Text(it,color=Muted,fontSize=8.sp)}}
+    Box(
+        Modifier.width(36.dp).height(22.dp).background(if(checked)Green else Color(0xFFC4C7C1),RoundedCornerShape(12.dp)).clickable{onChecked(!checked)}.padding(3.dp)
+    ) { Box(Modifier.size(16.dp).align(if(checked)Alignment.CenterEnd else Alignment.CenterStart).background(Color.White,CircleShape)) }
+}
+
+@Composable private fun SettingTextRow(title:String,value:String) = Row(Modifier.fillMaxWidth().padding(12.dp)) {
+    Text(title,Modifier.weight(1f),fontSize=11.sp,fontWeight=FontWeight.SemiBold);Text(value,color=Muted,fontSize=9.sp)
+}
+
+@Composable private fun SettingActionRow(title:String,subtitle:String,color:Color=Ink,onClick:()->Unit) = Row(
+    Modifier.fillMaxWidth().clickable(onClick=onClick).padding(horizontal=12.dp,vertical=10.dp),verticalAlignment=Alignment.CenterVertically
+) {
+    Column(Modifier.weight(1f)){Text(title,color=color,fontSize=11.sp,fontWeight=FontWeight.SemiBold);Text(subtitle,color=Muted,fontSize=8.sp)}
+    Text("›",color=Muted,fontSize=16.sp)
 }
 
 private enum class InstallmentInputMode { PER_PAYMENT, TOTAL }
@@ -649,7 +732,7 @@ private enum class InstallmentInputMode { PER_PAYMENT, TOTAL }
     close:()->Unit,
     save:(PlannedTransactionEntity)->Unit,
 ) {
-    val isInstallment=(old?.installmentTotal?.let{it>1})?:startAsInstallment
+    val isInstallment=old?.let(::isInstallmentPlan)?:startAsInstallment
     var name by remember {mutableStateOf(old?.name?:"")}
     var amount by remember {mutableStateOf(old?.let{currencyDecimal(it.amountCents,it.currencyCode)}?:"")}
     var type by remember {mutableStateOf(old?.type?.takeIf{it in listOf(EntryType.INCOME,EntryType.EXPENSE)}?:EntryType.EXPENSE)}
@@ -987,10 +1070,10 @@ private enum class InstallmentInputMode { PER_PAYMENT, TOTAL }
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable private fun EditDialog(title:String,close:()->Unit,save:()->Unit,content:@Composable ColumnScope.()->Unit) {
     BasicAlertDialog(onDismissRequest=close) {
-        Card(Modifier.fillMaxWidth().padding(12.dp)) {
-            Column(Modifier.padding(18.dp).heightIn(max=650.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(10.dp)){
-                Text(title,style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold);content()
-                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.End){TextButton(close){Text("取消")};Button(save){Text("保存")}}
+        Card(Modifier.fillMaxWidth().padding(10.dp).border(1.dp,Line),shape=RoundedCornerShape(0.dp),colors=CardDefaults.cardColors(containerColor=Panel)) {
+            Column(Modifier.padding(14.dp).heightIn(max=680.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(9.dp)){
+                Text(title,fontSize=19.sp,fontWeight=FontWeight.Bold);content()
+                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.End){TextButton(close){Text("取消")};Button(save,shape=RoundedCornerShape(0.dp)){Text("保存")}}
             }
         }
     }
@@ -1004,11 +1087,19 @@ private enum class InstallmentInputMode { PER_PAYMENT, TOTAL }
 )
 
 @Composable private fun DataCard(title:String,subtitle:String,amount:String,active:Boolean,onToggle:(()->Unit)?,onEdit:(()->Unit)?,onDelete:()->Unit,extraAction:Pair<String,()->Unit>?=null) {
-    Card { Column(Modifier.padding(14.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
-        Row(Modifier.fillMaxWidth()){Column(Modifier.weight(1f)){Text(title,fontWeight=FontWeight.Bold);Text(subtitle,color=Color.Gray,style=MaterialTheme.typography.bodySmall)};Text(amount,fontWeight=FontWeight.Bold)}
-        Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)){extraAction?.let{(label,action)->AssistChip(action,{Text(label)})};onToggle?.let{AssistChip(it,{Text(if(active)"停用" else "恢复")})};onEdit?.let{AssistChip(it,{Text("编辑")})};AssistChip(onDelete,{Text("删除",color=Red)})}
+    Card(Modifier.fillMaxWidth().border(1.dp,Line),shape=RoundedCornerShape(0.dp),colors=CardDefaults.cardColors(containerColor=Panel)) { Column(Modifier.padding(horizontal=12.dp,vertical=10.dp),verticalArrangement=Arrangement.spacedBy(7.dp)) {
+        Row(Modifier.fillMaxWidth()){Column(Modifier.weight(1f)){Text(title,fontWeight=FontWeight.Bold,fontSize=12.sp);Text(subtitle,color=Muted,fontSize=9.sp,lineHeight=12.sp)};Text(amount,fontWeight=FontWeight.Bold,fontSize=11.sp,color=if(amount.contains("-")||amount.contains("剩余"))Red else Green)}
+        Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)){
+            extraAction?.let{(label,action)->SmallAction(label,action)}
+            onToggle?.let{SmallAction(if(active)"停用" else "恢复",it)}
+            onEdit?.let{SmallAction("编辑",it)}
+            SmallAction("删除",onDelete,Red)
+        }
     }}
 }
+@Composable private fun SmallAction(label:String,onClick:()->Unit,color:Color=Green)=OutlinedButton(
+    onClick,Modifier.height(30.dp),shape=RoundedCornerShape(0.dp),contentPadding=PaddingValues(horizontal=10.dp,vertical=0.dp),colors=ButtonDefaults.outlinedButtonColors(contentColor=color)
+){Text(label,fontSize=9.sp)}
 @Composable private fun FinanceTip(text:String,onDismiss:()->Unit) {
     Card(colors=CardDefaults.cardColors(containerColor=Color(0xFFEAF5F1))) {
         Row(Modifier.fillMaxWidth().padding(start=14.dp,top=10.dp,bottom=10.dp,end=6.dp),verticalAlignment=Alignment.CenterVertically) {
@@ -1029,9 +1120,9 @@ private enum class InstallmentInputMode { PER_PAYMENT, TOTAL }
     Column(Modifier.fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(6.dp)){
         Text("$title：$date",fontWeight=FontWeight.SemiBold)
         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)){
-            OutlinedButton({onChange(date.minusDays(1))},Modifier.weight(1f),contentPadding=PaddingValues(horizontal=6.dp)){Text("前一天",maxLines=1)}
-            Button({showCalendar=true},Modifier.weight(1f),contentPadding=PaddingValues(horizontal=6.dp)){Text("日历",maxLines=1)}
-            OutlinedButton({onChange(date.plusDays(1))},Modifier.weight(1f),contentPadding=PaddingValues(horizontal=6.dp)){Text("后一天",maxLines=1)}
+            OutlinedButton({onChange(date.minusDays(1))},Modifier.weight(1f),shape=RoundedCornerShape(0.dp),contentPadding=PaddingValues(horizontal=6.dp)){Text("前一天",maxLines=1)}
+            Button({showCalendar=true},Modifier.weight(1f),shape=RoundedCornerShape(0.dp),contentPadding=PaddingValues(horizontal=6.dp)){Text("日历",maxLines=1)}
+            OutlinedButton({onChange(date.plusDays(1))},Modifier.weight(1f),shape=RoundedCornerShape(0.dp),contentPadding=PaddingValues(horizontal=6.dp)){Text("后一天",maxLines=1)}
         }
     }
     if(showCalendar){
@@ -1050,7 +1141,12 @@ private enum class InstallmentInputMode { PER_PAYMENT, TOTAL }
 @Composable private fun TextFieldSimple(value:String,onChange:(String)->Unit,label:String,type:KeyboardType=KeyboardType.Text)=OutlinedTextField(value,onChange,Modifier.fillMaxWidth(),label={Text(label)},singleLine=true,keyboardOptions=KeyboardOptions(keyboardType=type))
 @Composable private fun Metric(label:String,value:String,warn:Boolean=false)=Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text(label,color=Color.Gray);Text(value,fontWeight=FontWeight.SemiBold,color=if(warn)Red else Color.Unspecified)}
 @Composable private fun Section(text:String)=Text(text,fontWeight=FontWeight.Bold,style=MaterialTheme.typography.titleMedium)
-@Composable private fun EmptyCard(text:String)=Card{Text(text,Modifier.padding(16.dp),color=Color.Gray)}
+@Composable private fun EmptyCard(text:String,onClick:(()->Unit)?=null) {
+    val modifier=Modifier.fillMaxWidth().border(1.dp,Line).let{base->if(onClick!=null)base.clickable(onClick=onClick) else base}
+    Card(modifier,shape=RoundedCornerShape(0.dp),colors=CardDefaults.cardColors(containerColor=Panel)) {
+        Text(text,Modifier.padding(14.dp),color=Muted,fontSize=10.sp)
+    }
+}
 
 private fun parseCents(text:String):Long?=parseCurrencyAmount(text,"CNY")
 internal fun currencyFractionDigits(currency:String):Int=when(currency.uppercase()){
@@ -1099,6 +1195,8 @@ internal fun installmentBreakdown(totalAmount:Long,periods:Int):Pair<Long,Long>?
     val last=totalAmount-regular*(periods-1L)
     return regular to last
 }
+internal fun isInstallmentPlan(plan:PlannedTransactionEntity):Boolean =
+    plan.installmentTotal>1 && plan.repeatRule==RepeatRule.MONTHLY && !plan.name.contains("房租")
 internal fun remainingInstallmentPeriods(plan:PlannedTransactionEntity):Int =
     plan.installmentRemaining.takeIf{it>0}?.coerceAtMost(plan.installmentTotal.coerceAtLeast(1))
         ?: plan.installmentTotal.coerceAtLeast(1)
@@ -1158,6 +1256,15 @@ private fun cryptoSummary(holdings:List<CryptoHoldingEntity>)=listOf("USDT","BTC
 internal fun parseAccountIdCsv(csv:String):Set<Long> = csv.split(',').mapNotNull{it.trim().toLongOrNull()}.toSet()
 internal fun parseCurrencyCodeCsv(csv:String):Set<String> = csv.split(',').map{it.trim().uppercase()}.filter{it.isNotBlank()}.toSet()
 private fun monthDay(date:LocalDate)="${date.monthValue}/${date.dayOfMonth}"
+private fun homeDateLabel(date:LocalDate):String {
+    val weekday=listOf("一","二","三","四","五","六","日")[date.dayOfWeek.value-1]
+    return "${date.monthValue}月${date.dayOfMonth}日 · 周$weekday"
+}
+private fun axisMoney(amount:Long):String {
+    val value=amount/100.0
+    return if(value.absoluteValue>=1000) "${if(value<0)"−" else ""}${(value.absoluteValue/1000).roundToInt()}k"
+    else "${if(value<0)"−" else ""}${value.absoluteValue.roundToInt()}"
+}
 private fun entryLabel(t:EntryType)=when(t){EntryType.INCOME->"收入";EntryType.EXPENSE->"支出";EntryType.TRANSFER->"转账";EntryType.DEBT->"负债";EntryType.REFUND->"退款"}
 private fun repeatLabel(r:RepeatRule)=when(r){RepeatRule.NONE->"一次";RepeatRule.DAILY->"每天";RepeatRule.WEEKLY->"每周";RepeatRule.MONTHLY->"每月";RepeatRule.QUARTERLY->"每季度";RepeatRule.SEMIANNUAL->"每半年";RepeatRule.YEARLY->"每年"}
 private fun accountTypeLabel(t:AccountType)=when(t){AccountType.CASH->"现金";AccountType.WECHAT->"微信";AccountType.ALIPAY->"支付宝";AccountType.CMB->"银行";AccountType.PAYPAL->"PayPal";AccountType.CRYPTO->"数字货币";AccountType.CUSTOM->"自定义"}

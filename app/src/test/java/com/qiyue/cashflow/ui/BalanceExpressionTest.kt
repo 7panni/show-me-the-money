@@ -4,7 +4,9 @@ import com.qiyue.cashflow.data.EntryType
 import com.qiyue.cashflow.data.PlannedTransactionEntity
 import com.qiyue.cashflow.data.RepeatRule
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
 
@@ -57,5 +59,16 @@ class BalanceExpressionTest {
         assertEquals(6_668L,installmentRemainingAmount(plan))
         assertEquals(LocalDate.of(2026,8,10),nextPlanDate(plan,LocalDate.of(2026,8,1)))
         assertNull(nextPlanDate(plan.copy(isActive=false),LocalDate.of(2026,8,1)))
+    }
+
+    @Test fun recurringRentIsNotMistakenForInstallment() {
+        val rent=PlannedTransactionEntity(
+            name="房租",type=EntryType.EXPENSE,amountCents=2_000_00L,accountName="银行",
+            startDateEpochDay=LocalDate.of(2026,8,15).toEpochDay(),repeatRule=RepeatRule.QUARTERLY,
+            installmentTotal=40,installmentRemaining=40
+        )
+        assertFalse(isInstallmentPlan(rent))
+        assertFalse(isInstallmentPlan(rent.copy(repeatRule=RepeatRule.MONTHLY)))
+        assertTrue(isInstallmentPlan(rent.copy(name="分期",repeatRule=RepeatRule.MONTHLY)))
     }
 }

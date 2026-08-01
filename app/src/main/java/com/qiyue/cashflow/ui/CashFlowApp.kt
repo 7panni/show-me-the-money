@@ -33,6 +33,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.qiyue.cashflow.cashflow.CashFlowCalculator
 import com.qiyue.cashflow.cashflow.CashFlowDay
 import com.qiyue.cashflow.data.*
 import kotlinx.coroutines.launch
@@ -67,11 +68,15 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
             }},
             containerColor = Paper,
             snackbarHost = { state.message?.let { msg ->
-                Snackbar(modifier=Modifier.padding(12.dp), action={ TextButton(onClick=vm::dismissMessage){Text("知道了")} }) { Text(msg) }
+                Snackbar(modifier=Modifier.padding(12.dp), action={
+                    TextButton(onClick=if(state.pendingTransferUndo!=null) vm::undoLastTransfer else vm::dismissMessage) {
+                        Text(if(state.pendingTransferUndo!=null) "撤销" else "知道了")
+                    }
+                }) { Text(msg) }
             }}
         ) { pad ->
             when (tab) {
-                Tab.HOME -> HomePage(state, pad, vm::setHorizon)
+                Tab.HOME -> HomePage(state, pad, vm)
                 Tab.PLAN -> PlanPage(state, pad, vm)
                 Tab.ACCOUNT -> AccountPage(state, pad, vm)
                 Tab.SETTINGS -> SettingsPage(state, pad, vm)
@@ -127,7 +132,7 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
     }
 }
 
-@Composable private fun HomePage(state: CashFlowUiState, pad: PaddingValues, onHorizon: (Int)->Unit) {
+@Composable private fun HomePage(state: CashFlowUiState, pad: PaddingValues, vm: CashFlowViewModel) {
     val s = state.summary
     val hiddenHomeCurrencies = remember(state.settings.hiddenHomeCurrenciesCsv) {
         parseCurrencyCodeCsv(state.settings.hiddenHomeCurrenciesCsv)
@@ -172,7 +177,13 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
                 }
             }
         }
-        item { ChoiceRow(listOf(30,90,365), state.horizonDays, onHorizon) { "${it}天" } }
+        if(state.settings.showFinanceTips&&s.firstShortageDate!=null) item {
+            FinanceTip(
+                "预计 ${s.firstShortageDate} 首次出现现金为负。先检查收支发生的时间差，并保留能应对意外的应急资金。",
+                {vm.setFinanceTips(false)}
+            )
+        }
+        item { ChoiceRow(listOf(30,90,365), state.horizonDays, vm::setHorizon) { "${it}天" } }
         item {
             Card { Column(Modifier.padding(12.dp)) {
                 Text("人民币未来余额", fontWeight=FontWeight.Bold)
@@ -299,23 +310,32 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
     var delete by remember { mutableStateOf<Pair<String,()->Unit>?>(null) }
     val temporaryAdjustments = state.adjustments.filter { it.type == AdjustmentType.TEMPORARY }
     val visiblePlans = state.plans.filter { it.type != EntryType.TRANSFER }
+    val occurrenceCalculator = remember { CashFlowCalculator() }
+    val today = LocalDate.now()
     LazyColumn(Modifier.fillMaxSize().padding(pad), contentPadding=PaddingValues(16.dp), verticalArrangement=Arrangement.spacedBy(10.dp)) {
         item { Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-            Button({planEdit=null;showPlan=true}){Text("＋ 固定款项")}
+            Button({planEdit=null;showPlan=true}){Text("＋ 新增计划")}
             OutlinedButton({adjustmentEdit=null;showAdjustment=true}){Text("＋ 未来临时收支")}
         }}
-        item { Section("固定收入、支出与分期") }
+        item { Section("固定收入、固定支出与分期") }
         if(visiblePlans.isEmpty()) item { EmptyCard("还没有固定款项。先添加工资或房租。") }
-        items(visiblePlans, key={"plan-${it.id}"}) { p -> DataCard(
-            title=p.name,
-            subtitle=buildString {
-                append("${entryLabel(p.type)} · ${repeatLabel(p.repeatRule)} · ${p.accountName}")
-                if(p.installmentTotal>1) append(" · 分期 · 剩余${p.installmentRemaining}期")
-            },
-            amount=if(p.installmentTotal>1) "每期约 ${currencyMoney(p.amountCents,p.currencyCode)}" else currencyMoney(p.amountCents,p.currencyCode), active=p.isActive,
-            onToggle={vm.savePlan(p.copy(isActive=!p.isActive))}, onEdit={planEdit=p;showPlan=true},
-            onDelete={delete="“${p.name}”" to {vm.deletePlan(p.id)}}
-        )}
+        items(visiblePlans, key={"plan-${it.id}"}) { p ->
+            val installment=p.installmentTotal>1
+            val next=remember(p,today){nextPlanDate(p,today,occurrenceCalculator)}
+            DataCard(
+                title=p.name,
+                subtitle=buildString {
+                    append(if(installment)"分期" else if(p.type==EntryType.INCOME)"固定收入" else "固定支出")
+                    append(" · ${repeatLabel(p.repeatRule)} · ${p.accountName}")
+                    append(" · 下次 ${next ?: "无"}")
+                    if(installment) append(" · 剩余${remainingInstallmentPeriods(p)}期")
+                },
+                amount=if(installment) "剩余 ${currencyMoney(installmentRemainingAmount(p),p.currencyCode)}" else currencyMoney(p.amountCents,p.currencyCode),
+                active=p.isActive,
+                onToggle={vm.savePlan(p.copy(isActive=!p.isActive))}, onEdit={planEdit=p;showPlan=true},
+                onDelete={delete="“${p.name}”" to {vm.deletePlan(p.id)}}
+            )
+        }
         item { Section("总预算") }
         if(state.budgets.isEmpty()) item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -350,62 +370,68 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
             ) "计入真实余额" to {vm.applyAdjustmentToBalance(a)} else null)
         }
     }
-    if(showPlan) PlanDialog(planEdit, state, {showPlan=false}) {vm.savePlan(it);showPlan=false}
+    if(showPlan) PlanDialog(planEdit, state, {showPlan=false}, {vm.setFinanceTips(false)}) {vm.savePlan(it);showPlan=false}
     if(showBudget) BudgetDialog(budgetEdit, state, {showBudget=false}) {vm.saveBudget(it);showBudget=false}
     if(showAdjustment) AdjustmentDialog(adjustmentEdit, state, {showAdjustment=false}) {vm.saveAdjustment(it);showAdjustment=false}
     delete?.let { (name, action) -> ConfirmDialog("删除$name？","删除后无法恢复。",{delete=null},{action();delete=null}) }
 }
 
 @Composable private fun AccountPage(state: CashFlowUiState, pad: PaddingValues, vm: CashFlowViewModel) {
-    var editing by remember { mutableStateOf<AccountEntity?>(null) }
     var showEditor by remember { mutableStateOf(false) }
     var showCryptoEditor by remember { mutableStateOf(false) }
-    var showTransfer by remember { mutableStateOf(false) }
+    var transferSource by remember { mutableStateOf<AccountEntity?>(null) }
     val focusManager = LocalFocusManager.current
     val hiddenAccountIds = remember(state.settings.hiddenAccountIdsCsv) {
         parseAccountIdCsv(state.settings.hiddenAccountIdsCsv)
     }
     val visibleAccounts = state.accounts.filter { it.id !in hiddenAccountIds }
     LazyColumn(Modifier.fillMaxSize().padding(pad), contentPadding=PaddingValues(16.dp), verticalArrangement=Arrangement.spacedBy(10.dp)) {
-        item { Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-            Button({editing=null;showEditor=true},Modifier.weight(1f)){Text("＋ 增加账户")}
-            OutlinedButton(
-                {showTransfer=true},
-                Modifier.weight(1f),
-                enabled=state.accounts.filter{it.currencyCode!="CRYPTO"}.groupBy{it.currencyCode}.any{it.value.size>=2}
-            ){Text("账户间转账")}
-        }}
+        item { Button({showEditor=true},Modifier.fillMaxWidth()){Text("＋ 增加账户")} }
         if(visibleAccounts.isEmpty()) item { EmptyCard("没有需要显示的账户，可到“设置”恢复隐藏账户。") }
         items(visibleAccounts, key={it.id}) { a ->
             val endNative = state.summary.days.lastOrNull()?.accountBalancesCents?.get(a.name) ?: a.currentBalanceCents
+            val transferTargets = state.accounts.filter {
+                it.id!=a.id && it.currencyCode==a.currencyCode && it.currencyCode!="CRYPTO"
+            }
+            var nameText by remember(a.id,a.name) { mutableStateOf(a.name) }
             var balanceText by remember(a.id,a.currentBalanceCents) { mutableStateOf(currencyDecimal(a.currentBalanceCents,a.currencyCode)) }
             var showCalculator by remember(a.id) { mutableStateOf(false) }
-            var wasFocused by remember(a.id) { mutableStateOf(false) }
+            var nameWasFocused by remember(a.id) { mutableStateOf(false) }
+            var balanceWasFocused by remember(a.id) { mutableStateOf(false) }
+            fun saveName() {
+                val normalized=nameText.trim()
+                if(normalized.isBlank()||state.accounts.any{it.id!=a.id&&it.name==normalized}) nameText=a.name
+                vm.renameAccount(a,normalized)
+            }
             fun saveBalance() {
                 parseCurrencyExpression(balanceText,a.currencyCode)?.let { balance ->
                     if(balance!=a.currentBalanceCents) vm.calibrate(a,balance)
                 }
             }
             Card { Column(Modifier.padding(15.dp), verticalArrangement=Arrangement.spacedBy(8.dp)) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement=Arrangement.SpaceBetween) {
-                    Column(Modifier.weight(1f)) {
-                        Text(a.name, fontWeight=FontWeight.Bold, maxLines=1, overflow=TextOverflow.Ellipsis)
-                        Text("${currencyLabel(a.currencyCode)} · ${accountTypeLabel(a.accountType)}", color=Color.Gray)
-                    }
-                    if(a.currencyCode=="CRYPTO") Column(horizontalAlignment=Alignment.End) {
-                        Text(
-                            cryptoSummary(state.cryptoHoldings),
-                            fontWeight=FontWeight.Bold
-                        )
-                    }
+                OutlinedTextField(
+                    value=nameText,
+                    onValueChange={nameText=it},
+                    modifier=Modifier.fillMaxWidth().onFocusChanged { focusState ->
+                        if(nameWasFocused&&!focusState.isFocused) saveName()
+                        nameWasFocused=focusState.isFocused
+                    },
+                    label={Text("账户名称")},
+                    singleLine=true,
+                    keyboardOptions=KeyboardOptions(imeAction=ImeAction.Done),
+                    keyboardActions=KeyboardActions(onDone={saveName();focusManager.clearFocus()})
+                )
+                Text("${currencyLabel(a.currencyCode)} · ${accountTypeLabel(a.accountType)}", color=Color.Gray)
+                if(a.currencyCode=="CRYPTO") {
+                    Text(cryptoSummary(state.cryptoHoldings),fontWeight=FontWeight.Bold)
                 }
                 if(a.currencyCode!="CRYPTO") {
                     OutlinedTextField(
                         value=balanceText,
                         onValueChange={balanceText=it},
                         modifier=Modifier.fillMaxWidth().onFocusChanged { focusState ->
-                            if(wasFocused && !focusState.isFocused) saveBalance()
-                            wasFocused=focusState.isFocused
+                            if(balanceWasFocused && !focusState.isFocused) saveBalance()
+                            balanceWasFocused=focusState.isFocused
                         },
                         label={Text("真实余额")},
                         singleLine=true,
@@ -418,8 +444,16 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
                 }
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement=Arrangement.spacedBy(6.dp)) {
                     if(a.currencyCode=="CRYPTO") AssistChip({showCryptoEditor=true},{Text("修改持仓")})
-                    AssistChip({editing=a;showEditor=true},{Text("编辑")})
+                    if(a.currencyCode!="CRYPTO") AssistChip(
+                        onClick={transferSource=a},
+                        label={Text("转账")},
+                        enabled=transferTargets.isNotEmpty()
+                    )
                 }
+                if(a.currencyCode!="CRYPTO"&&transferTargets.isEmpty()) Text(
+                    "没有其他${currencyLabel(a.currencyCode)}账户，暂时无法转账。",
+                    color=Color.Gray,style=MaterialTheme.typography.bodySmall
+                )
             }}
             if(showCalculator) BalanceCalculatorDialog(
                 balanceText,a.currencyCode,{showCalculator=false}
@@ -430,9 +464,12 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
             }
         }
     }
-    if(showEditor) AccountDialog(editing,{showEditor=false}){vm.saveAccount(it);showEditor=false}
-    if(showTransfer) AccountTransferDialog(state.accounts,{showTransfer=false}){fromId,toId,amount->
-        vm.transferBalance(fromId,toId,amount);showTransfer=false
+    if(showEditor) AccountDialog({showEditor=false}){vm.saveAccount(it);showEditor=false}
+    transferSource?.let { source -> AccountTransferDialog(
+        source,state.accounts,state.settings.showFinanceTips,{transferSource=null},{vm.setFinanceTips(false)}
+    ){fromId,toId,amount->
+        vm.transferBalance(fromId,toId,amount);transferSource=null
+    }
     }
     if(showCryptoEditor) CryptoHoldingsDialog(state.cryptoHoldings,{showCryptoEditor=false}) {
         vm.saveCryptoHoldings(it);showCryptoEditor=false
@@ -449,6 +486,7 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
     var hiddenAccountIds by remember(state.settings.hiddenAccountIdsCsv, state.accounts.map { it.id }) {
         mutableStateOf(parseAccountIdCsv(state.settings.hiddenAccountIdsCsv))
     }
+    var showFinanceTips by remember(state.settings.showFinanceTips) { mutableStateOf(state.settings.showFinanceTips) }
     val homeCurrencies=state.accounts.map{it.currencyCode}.filter{it!="CNY"}.distinct().sortedWith(
         compareBy<String>{when(it){"USD"->1;"CRYPTO"->99;else->10}}.thenBy{it}
     )
@@ -467,6 +505,13 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
             ChoiceRow(listOf(30,90,365),days,{days=it}){"${it}天"}
             TextFieldSimple(budgetStartDay,{budgetStartDay=it},"每月预算从几号开始（1—28）",KeyboardType.Number)
             Text("当前按每月 ${budgetStartDay.toIntOrNull()?.coerceIn(1,28) ?: 21} 日至次月前一天计算。",color=Color.Gray,style=MaterialTheme.typography.bodySmall)
+            HorizontalDivider()
+            Section("财务提示")
+            Row(verticalAlignment=Alignment.CenterVertically) {
+                Checkbox(showFinanceTips,{showFinanceTips=it})
+                Text("在相关场景显示简短财务常识")
+            }
+            Text("只解释现金流和风险，不推荐任何理财产品。",color=Color.Gray,style=MaterialTheme.typography.bodySmall)
             HorizontalDivider()
             Section("首页显示币种")
             Text("人民币固定显示",color=Color.Gray)
@@ -496,7 +541,7 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
             }
             Text("这里只控制账户页是否显示，不影响余额和预测。",color=Color.Gray,style=MaterialTheme.typography.bodySmall)
             Button({vm.updateSettings(
-                days,budgetStartDay.toIntOrNull()?:21,hiddenHomeCurrencies,hiddenAccountIds
+                days,budgetStartDay.toIntOrNull()?:21,hiddenHomeCurrencies,hiddenAccountIds,showFinanceTips
             )},Modifier.fillMaxWidth()){Text("保存全部设置")}
         }}}
         item { Card { Column(Modifier.padding(16.dp), verticalArrangement=Arrangement.spacedBy(10.dp)) {
@@ -515,11 +560,17 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
     if(confirmClear) ConfirmDialog("清空全部测试数据？","账户、计划、预算和修正都会删除。",{confirmClear=false},{vm.clearAll();confirmClear=false})
 }
 
-@Composable private fun PlanDialog(old: PlannedTransactionEntity?, state: CashFlowUiState, close:()->Unit, save:(PlannedTransactionEntity)->Unit) {
+@Composable private fun PlanDialog(
+    old: PlannedTransactionEntity?,
+    state: CashFlowUiState,
+    close:()->Unit,
+    dismissTips:()->Unit,
+    save:(PlannedTransactionEntity)->Unit,
+) {
     var name by remember {mutableStateOf(old?.name?:"")}
     var amount by remember {mutableStateOf(old?.let{currencyDecimal(it.amountCents,it.currencyCode)}?:"")}
     var type by remember {mutableStateOf(old?.type?.takeIf{it in listOf(EntryType.INCOME,EntryType.EXPENSE)}?:EntryType.EXPENSE)}
-    var repeat by remember {mutableStateOf(old?.repeatRule?:RepeatRule.MONTHLY)}
+    var repeat by remember {mutableStateOf(old?.repeatRule?.takeIf{it in listOf(RepeatRule.WEEKLY,RepeatRule.MONTHLY,RepeatRule.QUARTERLY,RepeatRule.YEARLY)}?:RepeatRule.MONTHLY)}
     var account by remember {mutableStateOf(old?.accountName?:state.accounts.firstOrNull()?.name.orEmpty())}
     var cryptoSymbol by remember {mutableStateOf(old?.currencyCode?.takeIf{it in listOf("USDT","BTC","LTC")} ?: "USDT")}
     var date by remember {mutableStateOf(old?.startDateEpochDay?.let(LocalDate::ofEpochDay)?:LocalDate.now().plusDays(1))}
@@ -553,7 +604,7 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
     }) {
         TextFieldSimple(name,{name=it},"名称")
         Text("类型"); ChoiceRow(listOf(EntryType.INCOME,EntryType.EXPENSE),type,{type=it}){entryLabel(it)}
-        Text("频率"); ChoiceRow(listOf(RepeatRule.NONE,RepeatRule.WEEKLY,RepeatRule.MONTHLY,RepeatRule.QUARTERLY,RepeatRule.YEARLY),repeat,{repeat=it}){repeatLabel(it)}
+        Text("频率"); ChoiceRow(listOf(RepeatRule.WEEKLY,RepeatRule.MONTHLY,RepeatRule.QUARTERLY,RepeatRule.YEARLY),repeat,{repeat=it}){repeatLabel(it)}
         AccountChoice("账户",state.accounts,account){account=it}
         val selectedAccount=state.accounts.firstOrNull{it.name==account}
         if(selectedAccount?.currencyCode=="CRYPTO") {
@@ -563,7 +614,7 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
         val displayCurrency=if(selectedAccount?.currencyCode=="CRYPTO")cryptoSymbol else selectedAccount?.currencyCode?:"CNY"
         if(type==EntryType.EXPENSE) Row(verticalAlignment=Alignment.CenterVertically) {
             Checkbox(isInstallment,{isInstallment=it;if(it)repeat=RepeatRule.MONTHLY})
-            Text("这是分期支出")
+            Text("分期")
         }
         if(type==EntryType.EXPENSE&&isInstallment) {
             MoneyField(installmentAmount,{installmentAmount=it},"分期总还款金额（${currencyLabel(displayCurrency)}）")
@@ -575,7 +626,10 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
                 "每期 ${currencyMoney(preview.first,displayCurrency)}；最后一期 ${currencyMoney(preview.second,displayCurrency)}",
                 color=Green,style=MaterialTheme.typography.bodySmall
             )
-            Text("默认无利息；如有利息或手续费，请填写实际总还款金额。",color=Color.Gray,style=MaterialTheme.typography.bodySmall)
+            if(state.settings.showFinanceTips) FinanceTip(
+                "分期重点看总还款额，不只看每期金额。默认按无利息计算；如有利息或手续费，请填写实际总还款金额。",
+                dismissTips
+            )
         } else {
             MoneyField(amount,{amount=it},"金额（${currencyLabel(displayCurrency)}）")
         }
@@ -642,59 +696,47 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
     }
 }
 
-@Composable private fun AccountDialog(old:AccountEntity?,close:()->Unit,save:(AccountEntity)->Unit) {
-    var name by remember{mutableStateOf(old?.name?:"")}
+@Composable private fun AccountDialog(close:()->Unit,save:(AccountEntity)->Unit) {
+    var name by remember{mutableStateOf("")}
     var balance by remember{mutableStateOf("")}
-    var type by remember{mutableStateOf(old?.accountType?:AccountType.CASH)}
+    var type by remember{mutableStateOf(AccountType.CASH)}
     val commonCurrencies=listOf("CNY","USD","EUR","GBP","JPY","HKD")
-    var currencyChoice by remember{mutableStateOf(old?.currencyCode?.takeIf{it in commonCurrencies}?:"CNY")}
-    var customCurrency by remember{mutableStateOf(old?.currencyCode?.takeIf{it !in commonCurrencies}.orEmpty())}
+    var currencyChoice by remember{mutableStateOf("CNY")}
+    var customCurrency by remember{mutableStateOf("")}
     var currencyError by remember{mutableStateOf(false)}
-    EditDialog(if(old==null)"增加账户" else "编辑账户",close,{
-        if(old==null) {
-            val actualCurrency = when(type) {
-                AccountType.PAYPAL -> "USD"
-                AccountType.CRYPTO -> "CRYPTO"
-                AccountType.CUSTOM -> if(currencyChoice=="OTHER") customCurrency.trim().uppercase() else currencyChoice
-                else -> "CNY"
-            }
-            if(actualCurrency!="CRYPTO" && !actualCurrency.matches(Regex("[A-Z]{2,8}"))) {
-                currencyError=true
-                return@EditDialog
-            }
-            val initial = if(actualCurrency=="CRYPTO") 0 else parseCurrencyAmount(balance,actualCurrency) ?: return@EditDialog
-            save(AccountEntity(0,name.ifBlank{"未命名账户"},initial,initial,actualCurrency,
-                if(actualCurrency=="CNY")1_000_000 else 0,true,type,true))
-        } else {
-            save(old.copy(
-                name=name.ifBlank{"未命名账户"},
-                includeInForecast=true,
-                isActive=true
-            ))
+    EditDialog("增加账户",close,{
+        val actualCurrency = when(type) {
+            AccountType.PAYPAL -> "USD"
+            AccountType.CRYPTO -> "CRYPTO"
+            AccountType.CUSTOM -> if(currencyChoice=="OTHER") customCurrency.trim().uppercase() else currencyChoice
+            else -> "CNY"
         }
+        if(actualCurrency!="CRYPTO" && !actualCurrency.matches(Regex("[A-Z]{2,8}"))) {
+            currencyError=true
+            return@EditDialog
+        }
+        val initial = if(actualCurrency=="CRYPTO") 0 else parseCurrencyAmount(balance,actualCurrency) ?: return@EditDialog
+        save(AccountEntity(0,name.ifBlank{"未命名账户"},initial,initial,actualCurrency,
+            if(actualCurrency=="CNY")1_000_000 else 0,true,type,true))
     }) {
         TextFieldSimple(name,{name=it},"账户名称")
-        if(old==null) {
-            Text("账户类型")
-            val allowedTypes = listOf(
-                AccountType.CASH,AccountType.WECHAT,AccountType.ALIPAY,AccountType.CMB,
-                AccountType.PAYPAL,AccountType.CRYPTO,AccountType.CUSTOM
-            )
-            ChoiceRow(allowedTypes,type,{type=it}){accountTypeLabel(it)}
-            if(type==AccountType.CUSTOM) {
-                Text("币种")
-                ChoiceRow(commonCurrencies+"OTHER",currencyChoice,{currencyChoice=it;currencyError=false}){if(it=="OTHER")"其他" else currencyLabel(it)}
-                if(currencyChoice=="OTHER") {
-                    TextFieldSimple(customCurrency,{customCurrency=it.uppercase();currencyError=false},"币种代码，例如 SGD")
-                    if(currencyError) Text("请输入 2—8 位英文字母币种代码",color=Red,style=MaterialTheme.typography.bodySmall)
-                }
+        Text("账户类型")
+        val allowedTypes = listOf(
+            AccountType.CASH,AccountType.WECHAT,AccountType.ALIPAY,AccountType.CMB,
+            AccountType.PAYPAL,AccountType.CRYPTO,AccountType.CUSTOM
+        )
+        ChoiceRow(allowedTypes,type,{type=it}){accountTypeLabel(it)}
+        if(type==AccountType.CUSTOM) {
+            Text("币种")
+            ChoiceRow(commonCurrencies+"OTHER",currencyChoice,{currencyChoice=it;currencyError=false}){if(it=="OTHER")"其他" else currencyLabel(it)}
+            if(currencyChoice=="OTHER") {
+                TextFieldSimple(customCurrency,{customCurrency=it.uppercase();currencyError=false},"币种代码，例如 SGD")
+                if(currencyError) Text("请输入 2—8 位英文字母币种代码",color=Red,style=MaterialTheme.typography.bodySmall)
             }
-            if(type!=AccountType.CRYPTO) {
-                val actualCurrency=when(type){AccountType.PAYPAL->"USD";AccountType.CUSTOM->if(currencyChoice=="OTHER")customCurrency.uppercase() else currencyChoice;else->"CNY"}
-                MoneyField(balance,{balance=it},"初始真实余额（${currencyLabel(actualCurrency)}）")
-            }
-        } else {
-            Text("${accountTypeLabel(old.accountType)} · ${currencyLabel(old.currencyCode)}",color=Color.Gray)
+        }
+        if(type!=AccountType.CRYPTO) {
+            val actualCurrency=when(type){AccountType.PAYPAL->"USD";AccountType.CUSTOM->if(currencyChoice=="OTHER")customCurrency.uppercase() else currencyChoice;else->"CNY"}
+            MoneyField(balance,{balance=it},"初始真实余额（${currencyLabel(actualCurrency)}）")
         }
     }
 }
@@ -724,30 +766,50 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
 }
 
 @Composable private fun AccountTransferDialog(
+    source:AccountEntity,
     accounts:List<AccountEntity>,
+    showTips:Boolean,
     close:()->Unit,
+    dismissTips:()->Unit,
     transfer:(Long,Long,Long)->Unit,
 ) {
-    val sources=accounts.filter { source ->
-        source.currencyCode!="CRYPTO"&&accounts.any{it.id!=source.id&&it.currencyCode==source.currencyCode}
-    }
-    var fromName by remember{mutableStateOf(sources.firstOrNull()?.name.orEmpty())}
-    val source=sources.firstOrNull{it.name==fromName}?:sources.firstOrNull()
-    val targets=accounts.filter{it.id!=source?.id&&it.currencyCode==source?.currencyCode}
+    val targets=accounts.filter{it.id!=source.id&&it.currencyCode==source.currencyCode&&it.currencyCode!="CRYPTO"}
     var toName by remember{mutableStateOf(targets.firstOrNull()?.name.orEmpty())}
     val selectedTarget=toName.takeIf{name->targets.any{it.name==name}}?:targets.firstOrNull()?.name.orEmpty()
     var amount by remember{mutableStateOf("")}
-    val currency=source?.currencyCode?:"CNY"
-    EditDialog("账户间转账",close,{
+    var amountError by remember{mutableStateOf(false)}
+    var confirmation by remember{mutableStateOf<Pair<AccountEntity,Long>?>(null)}
+    val currency=source.currencyCode
+    val pending=confirmation
+    if(pending!=null) {
+        val (target,minor)=pending
+        val targetAfter=runCatching{Math.addExact(target.currentBalanceCents,minor)}.getOrNull()
+        AlertDialog(
+            onDismissRequest={confirmation=null},
+            confirmButton={Button({transfer(source.id,target.id,minor)}){Text("确认转账")}},
+            dismissButton={TextButton({confirmation=null}){Text("返回修改")}},
+            title={Text("确认从“${source.name}”转账？")},
+            text={Column(verticalArrangement=Arrangement.spacedBy(8.dp)){
+                Text("${source.name}：${currencyMoney(source.currentBalanceCents,currency)} → ${currencyMoney(source.currentBalanceCents-minor,currency)}")
+                if(targetAfter!=null) Text("${target.name}：${currencyMoney(target.currentBalanceCents,currency)} → ${currencyMoney(targetAfter,currency)}")
+                Text("同币种总余额不变。",color=Color.Gray,style=MaterialTheme.typography.bodySmall)
+            }}
+        )
+    } else EditDialog("从“${source.name}”转账",close,{
         val target=targets.firstOrNull{it.name==selectedTarget}?:return@EditDialog
         val minor=parseCurrencyAmount(amount,currency)?:return@EditDialog
-        transfer(source?.id?:return@EditDialog,target.id,minor)
+        if(minor<=0L||minor>source.currentBalanceCents||runCatching{Math.addExact(target.currentBalanceCents,minor)}.isFailure) {
+            amountError=true
+            return@EditDialog
+        }
+        confirmation=target to minor
     }) {
-        AccountChoice("转出账户",sources,source?.name.orEmpty()){fromName=it;toName="";amount=""}
-        source?.let{Text("当前余额 ${currencyMoney(it.currentBalanceCents,it.currencyCode)}",color=Color.Gray)}
+        Text("转出账户：${source.name}",fontWeight=FontWeight.SemiBold)
+        Text("当前余额 ${currencyMoney(source.currentBalanceCents,currency)}",color=Color.Gray)
         AccountChoice("转入账户",targets,selectedTarget){toName=it}
-        MoneyField(amount,{amount=it},"转账金额（${currencyLabel(currency)}）")
-        Text("确认后立即改变两个账户的真实余额；同币种总余额不变。",color=Color.Gray,style=MaterialTheme.typography.bodySmall)
+        MoneyField(amount,{amount=it;amountError=false},"转账金额（${currencyLabel(currency)}）")
+        if(amountError) Text("金额必须大于 0，且不能超过转出账户余额。",color=Red,style=MaterialTheme.typography.bodySmall)
+        if(showTips) FinanceTip("转账只改变钱所在的账户，不会改变同币种总资产。",dismissTips)
     }
 }
 
@@ -840,6 +902,14 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
         Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)){extraAction?.let{(label,action)->AssistChip(action,{Text(label)})};onToggle?.let{AssistChip(it,{Text(if(active)"停用" else "恢复")})};onEdit?.let{AssistChip(it,{Text("编辑")})};AssistChip(onDelete,{Text("删除",color=Red)})}
     }}
 }
+@Composable private fun FinanceTip(text:String,onDismiss:()->Unit) {
+    Card(colors=CardDefaults.cardColors(containerColor=Color(0xFFEAF5F1))) {
+        Row(Modifier.fillMaxWidth().padding(start=14.dp,top=10.dp,bottom=10.dp,end=6.dp),verticalAlignment=Alignment.CenterVertically) {
+            Text(text,Modifier.weight(1f),style=MaterialTheme.typography.bodySmall)
+            TextButton(onDismiss){Text("关闭")}
+        }
+    }
+}
 @Composable private fun <T> ChoiceRow(options:List<T>,selected:T,onSelect:(T)->Unit,label:(T)->String) {
     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(7.dp)){
         options.forEach{FilterChip(it==selected,{onSelect(it)},{Text(label(it),maxLines=1)})}
@@ -921,6 +991,32 @@ internal fun installmentBreakdown(totalAmount:Long,periods:Int):Pair<Long,Long>?
     val regular=totalAmount/periods
     val last=totalAmount-regular*(periods-1L)
     return regular to last
+}
+internal fun remainingInstallmentPeriods(plan:PlannedTransactionEntity):Int =
+    plan.installmentRemaining.takeIf{it>0}?.coerceAtMost(plan.installmentTotal.coerceAtLeast(1))
+        ?: plan.installmentTotal.coerceAtLeast(1)
+internal fun installmentRemainingAmount(plan:PlannedTransactionEntity):Long {
+    val periods=plan.installmentTotal.coerceAtLeast(1)
+    val remaining=remainingInstallmentPeriods(plan)
+    if(plan.installmentTotalAmountCents<=0L) return runCatching{
+        Math.multiplyExact(plan.amountCents,remaining.toLong())
+    }.getOrDefault(Long.MAX_VALUE)
+    val regular=plan.installmentTotalAmountCents/periods
+    val paid=periods-remaining
+    return plan.installmentTotalAmountCents-regular*paid
+}
+internal fun nextPlanDate(
+    plan:PlannedTransactionEntity,
+    from:LocalDate,
+    calculator:CashFlowCalculator=CashFlowCalculator(),
+    maxDays:Int=3650,
+):LocalDate? {
+    if(!plan.isActive) return null
+    for(offset in 0..maxDays) {
+        val date=from.plusDays(offset.toLong())
+        if(calculator.occursOn(plan,date)) return date
+    }
+    return null
 }
 private fun parseCryptoUnits(text:String):Long?=parseCurrencyAmount(text,"BTC")
 private fun decimal(cents:Long)=currencyDecimal(cents,"CNY")

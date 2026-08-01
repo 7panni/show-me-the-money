@@ -21,8 +21,11 @@ data class CashFlowUiState(
     val horizonDays: Int = 90,
     val summary: CashFlowSummary = CashFlowCalculator().forecast(emptyList(), emptyList(), emptyList(), emptyList()),
     val message: String? = null,
+    val pendingTransferUndo: TransferUndo? = null,
     val isReady: Boolean = false,
 )
+
+data class TransferUndo(val fromId: Long, val toId: Long, val amountCents: Long)
 
 class CashFlowViewModel(application: Application) : AndroidViewModel(application) {
     private val dao = AppDatabase.get(application).transactionDao()
@@ -30,6 +33,7 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
     private val calculator = CashFlowCalculator()
     private val horizon = MutableStateFlow(90)
     private val message = MutableStateFlow<String?>(null)
+    private val transferUndo = MutableStateFlow<TransferUndo?>(null)
 
     init {
         viewModelScope.launch {
@@ -40,7 +44,8 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
 
     val uiState = combine(
         dao.observeAccounts(), dao.observePlans(), dao.observeBudgets(),
-        dao.observeAdjustments(), dao.observeSettings(), dao.observeCryptoHoldings(), horizon, message
+        dao.observeAdjustments(), dao.observeSettings(), dao.observeCryptoHoldings(), horizon, message,
+        transferUndo
     ) { values ->
         val accounts = values[0] as List<AccountEntity>
         val plans = values[1] as List<PlannedTransactionEntity>
@@ -71,13 +76,34 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
             horizonDays = days,
             summary = visibleSummary.copy(firstShortageDate = longTermShortage),
             message = values[7] as String?,
+            pendingTransferUndo = values[8] as TransferUndo?,
             isReady = true,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), CashFlowUiState())
 
     fun setHorizon(days: Int) { horizon.value = days }
-    fun dismissMessage() { message.value = null }
-    fun saveAccount(item: AccountEntity) = launch { dao.upsertAccount(item) }
+    fun dismissMessage() {
+        message.value = null
+        transferUndo.value = null
+    }
+    fun saveAccount(item: AccountEntity) = launch {
+        val normalized=item.name.trim().ifBlank{"未命名账户"}
+        if(dao.getAccounts().any{it.id!=item.id&&it.name==normalized}) {
+            message.value="账户名称已存在，请换一个名称"
+        } else {
+            dao.upsertAccount(item.copy(name=normalized))
+            message.value="账户已保存"
+        }
+    }
+    fun renameAccount(account: AccountEntity, requestedName: String) = launch {
+        val newName = requestedName.trim()
+        when {
+            newName.isBlank() -> message.value = "账户名称不能为空"
+            newName == account.name -> Unit
+            dao.renameAccountAndReferences(account.id, newName) -> message.value = "账户名称已更新"
+            else -> message.value = "账户名称已存在，请换一个名称"
+        }
+    }
     fun savePlan(item: PlannedTransactionEntity) = launch { dao.upsertPlan(item) }
     fun saveBudget(item: BudgetEntity) = launch { dao.upsertBudget(item) }
     fun saveAdjustment(item: AdjustmentEntity) = launch { dao.upsertAdjustment(item) }
@@ -111,6 +137,7 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun transferBalance(fromId: Long, toId: Long, amount: Long) = launch {
+        transferUndo.value = null
         val accounts = dao.getAccounts()
         val from = accounts.firstOrNull { it.id == fromId }
         val to = accounts.firstOrNull { it.id == toId }
@@ -120,9 +147,27 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
             from.currencyCode != to.currencyCode -> message.value = "当前只支持相同币种账户之间转账"
             amount <= 0L -> message.value = "请输入正确的转账金额"
             from.currentBalanceCents < amount -> message.value = "转出账户余额不足"
-            dao.transferAccountBalance(fromId, toId, amount) -> message.value = "转账完成，两个账户的真实余额已更新"
+            dao.transferAccountBalance(fromId, toId, amount) -> {
+                transferUndo.value = TransferUndo(fromId, toId, amount)
+                message.value = "转账完成，两个账户的真实余额已更新"
+            }
             else -> message.value = "转账失败，请重新确认账户和金额"
         }
+    }
+
+    fun undoLastTransfer() = launch {
+        val undo = transferUndo.value ?: return@launch
+        transferUndo.value = null
+        message.value = if (dao.undoAccountBalanceTransfer(undo.fromId, undo.toId, undo.amountCents)) {
+            "转账已撤销"
+        } else {
+            "撤销失败，请直接修改账户真实余额"
+        }
+    }
+
+    fun setFinanceTips(show: Boolean) = launch {
+        dao.upsertSettings(uiState.value.settings.copy(showFinanceTips = show))
+        if (!show) message.value = "财务提示已关闭，可在设置中重新开启"
     }
 
     fun updateSettings(
@@ -130,6 +175,7 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
         budgetStartDay: Int,
         hiddenHomeCurrencies: Set<String>,
         hiddenAccountIds: Set<Long>,
+        showFinanceTips: Boolean,
     ) = launch {
         val accounts = dao.getAccounts()
         fun shows(type: AccountType) = accounts.none { it.accountType == type } ||
@@ -145,6 +191,7 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
             hiddenAccountIdsCsv = hiddenAccountIds.intersect(accounts.map { it.id }.toSet())
                 .sorted().joinToString(","),
             hiddenHomeCurrenciesCsv = hiddenHomeCurrencies.map { it.uppercase() }.distinct().sorted().joinToString(","),
+            showFinanceTips = showFinanceTips,
             onboardingCompleted = true,
             seeded = true
         ))

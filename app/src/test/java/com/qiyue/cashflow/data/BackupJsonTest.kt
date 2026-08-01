@@ -43,6 +43,7 @@ class BackupJsonTest {
                 customModulesCsv = "BUDGET,TRANSFER",
                 hiddenAccountIdsCsv = "1,8,21",
                 hiddenHomeCurrenciesCsv = "CRYPTO,USD",
+                showFinanceTips = false,
                 onboardingCompleted = true,
                 seeded = true
             ),
@@ -77,6 +78,7 @@ class BackupJsonTest {
                 remove("onboardingCompleted")
                 remove("hiddenAccountIds")
                 remove("hiddenHomeCurrencies")
+                remove("showFinanceTips")
             }
         }.toString()
         val restored = BackupJson.decode(legacy)
@@ -84,5 +86,6 @@ class BackupJsonTest {
         assertTrue(restored.settings.onboardingCompleted)
         assertTrue(!restored.hasAccountVisibilitySettings)
         assertTrue(!restored.hasHomeCurrencySettings)
+        assertTrue(restored.settings.showFinanceTips)
     }
 }

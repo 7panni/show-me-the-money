@@ -37,6 +37,8 @@ interface TransactionDao {
     @Query("SELECT COUNT(*) FROM AccountEntity") suspend fun accountCount(): Int
     @Query("SELECT * FROM AccountEntity") suspend fun getAccounts(): List<AccountEntity>
     @Query("SELECT * FROM AccountEntity WHERE id=:id LIMIT 1") suspend fun getAccount(id: Long): AccountEntity?
+    @Query("SELECT COUNT(*) FROM AccountEntity WHERE name=:name AND id!=:id")
+    suspend fun countOtherAccountsWithName(id: Long, name: String): Int
     @Query("SELECT * FROM PlannedTransactionEntity") suspend fun getPlans(): List<PlannedTransactionEntity>
     @Query("SELECT * FROM BudgetEntity") suspend fun getBudgets(): List<BudgetEntity>
     @Query("SELECT * FROM BudgetEntity WHERE name=:name LIMIT 1") suspend fun getBudgetByName(name: String): BudgetEntity?
@@ -65,12 +67,29 @@ interface TransactionDao {
     suspend fun renamePlanTargetAccount(oldName: String, newName: String)
     @Query("UPDATE AdjustmentEntity SET accountName=:newName WHERE accountName=:oldName")
     suspend fun renameAdjustmentAccount(oldName: String, newName: String)
+    @Query("UPDATE BudgetEntity SET accountName=:newName WHERE accountName=:oldName")
+    suspend fun renameBudgetAccount(oldName: String, newName: String)
     @Query("UPDATE AccountEntity SET name=:newName WHERE name=:oldName")
     suspend fun renameAccount(oldName: String, newName: String)
     @Query("UPDATE TransactionEntity SET accountName=:newName WHERE accountName=:oldName")
     suspend fun renameTransactionAccount(oldName: String, newName: String)
     @Query("UPDATE TransactionEntity SET toAccountName=:newName WHERE toAccountName=:oldName")
     suspend fun renameTransactionTargetAccount(oldName: String, newName: String)
+
+    @Transaction
+    suspend fun renameAccountAndReferences(id: Long, newName: String): Boolean {
+        val account = getAccount(id) ?: return false
+        if (account.name == newName) return true
+        if (countOtherAccountsWithName(id, newName) > 0) return false
+        renamePlanAccount(account.name, newName)
+        renamePlanTargetAccount(account.name, newName)
+        renameBudgetAccount(account.name, newName)
+        renameAdjustmentAccount(account.name, newName)
+        renameTransactionAccount(account.name, newName)
+        renameTransactionTargetAccount(account.name, newName)
+        renameAccount(account.name, newName)
+        return true
+    }
 
     @Transaction
     suspend fun transferAccountBalance(fromId: Long, toId: Long, amount: Long): Boolean {
@@ -81,6 +100,18 @@ interface TransactionDao {
         val newTargetBalance = runCatching { Math.addExact(to.currentBalanceCents, amount) }.getOrNull() ?: return false
         upsertAccount(from.copy(currentBalanceCents = from.currentBalanceCents - amount))
         upsertAccount(to.copy(currentBalanceCents = newTargetBalance))
+        return true
+    }
+
+    @Transaction
+    suspend fun undoAccountBalanceTransfer(fromId: Long, toId: Long, amount: Long): Boolean {
+        val from = getAccount(fromId) ?: return false
+        val to = getAccount(toId) ?: return false
+        if (from.id == to.id || from.currencyCode != to.currencyCode || amount <= 0L) return false
+        val restoredFrom = runCatching { Math.addExact(from.currentBalanceCents, amount) }.getOrNull() ?: return false
+        val restoredTo = runCatching { Math.subtractExact(to.currentBalanceCents, amount) }.getOrNull() ?: return false
+        upsertAccount(from.copy(currentBalanceCents = restoredFrom))
+        upsertAccount(to.copy(currentBalanceCents = restoredTo))
         return true
     }
 

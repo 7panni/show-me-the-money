@@ -14,13 +14,13 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class AppDatabaseMigrationTest {
     private val context = ApplicationProvider.getApplicationContext<Context>()
-    private val databaseName = "migration-5-8-test.db"
+    private val databaseName = "migration-5-9-test.db"
 
     @After fun cleanUp() {
         context.deleteDatabase(databaseName)
     }
 
-    @Test fun migration5To8PreservesSettingsAndAddsInstallmentAndVisibilityChoices() {
+    @Test fun migration5To9PreservesSettingsAndAddsInstallmentVisibilityAndTips() {
         context.deleteDatabase(databaseName)
         val helper = FrameworkSQLiteOpenHelperFactory().create(
             SupportSQLiteOpenHelper.Configuration.builder(context)
@@ -46,7 +46,8 @@ class AppDatabaseMigrationTest {
             AppDatabase.MIGRATION_5_6.migrate(db)
             AppDatabase.MIGRATION_6_7.migrate(db)
             AppDatabase.MIGRATION_7_8.migrate(db)
-            db.query("SELECT defaultHorizonDays, appMode, customModulesCsv, onboardingCompleted, hiddenAccountIdsCsv, hiddenHomeCurrenciesCsv FROM AppSettingsEntity WHERE id=1").use { cursor ->
+            AppDatabase.MIGRATION_8_9.migrate(db)
+            db.query("SELECT defaultHorizonDays, appMode, customModulesCsv, onboardingCompleted, hiddenAccountIdsCsv, hiddenHomeCurrenciesCsv, showFinanceTips FROM AppSettingsEntity WHERE id=1").use { cursor ->
                 cursor.moveToFirst()
                 assertEquals(365, cursor.getInt(0))
                 assertEquals("FULL", cursor.getString(1))
@@ -54,6 +55,7 @@ class AppDatabaseMigrationTest {
                 assertEquals(1, cursor.getInt(3))
                 assertEquals("", cursor.getString(4))
                 assertEquals("USD", cursor.getString(5))
+                assertEquals(1, cursor.getInt(6))
             }
             db.query("SELECT installmentTotalAmountCents FROM PlannedTransactionEntity").use { cursor ->
                 assertEquals(1,cursor.columnCount)

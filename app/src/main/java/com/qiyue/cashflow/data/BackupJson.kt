@@ -17,7 +17,7 @@ data class ForecastBackup(
 object BackupJson {
     fun encode(data: ForecastBackup): String = JSONObject().apply {
         put("format", "cashflow-forecast")
-        put("version", 3)
+        put("version", 4)
         put("accounts", JSONArray(data.accounts.map { a -> JSONObject().apply {
             put("id", a.id); put("name", a.name); put("initialBalance", a.initialBalanceCents); put("balance", a.currentBalanceCents)
             put("currency", a.currencyCode); put("rate", a.exchangeRateToCnyMicros)
@@ -57,6 +57,7 @@ object BackupJson {
             put("customModules", data.settings.customModulesCsv)
             put("hiddenAccountIds", data.settings.hiddenAccountIdsCsv)
             put("hiddenHomeCurrencies", data.settings.hiddenHomeCurrenciesCsv)
+            put("showFinanceTips", data.settings.showFinanceTips)
             put("onboardingCompleted", data.settings.onboardingCompleted)
             put("seeded", data.settings.seeded)
         })
@@ -109,6 +110,7 @@ object BackupJson {
                 customModulesCsv=s.optString("customModules", ""),
                 hiddenAccountIdsCsv=s.optString("hiddenAccountIds", ""),
                 hiddenHomeCurrenciesCsv=s.optString("hiddenHomeCurrencies", ""),
+                showFinanceTips=s.optBoolean("showFinanceTips", true),
                 onboardingCompleted=s.optBoolean("onboardingCompleted", true),
                 seeded=s.optBoolean("seeded", true)
             ),

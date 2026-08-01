@@ -128,6 +128,7 @@ data class AppSettingsEntity(
     val customModulesCsv: String = "",
     val hiddenAccountIdsCsv: String = "",
     val hiddenHomeCurrenciesCsv: String = "",
+    val showFinanceTips: Boolean = true,
     val onboardingCompleted: Boolean = false,
     val seeded: Boolean = false
 )

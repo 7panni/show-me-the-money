@@ -1,8 +1,12 @@
 package com.qiyue.cashflow.ui
 
+import com.qiyue.cashflow.data.EntryType
+import com.qiyue.cashflow.data.PlannedTransactionEntity
+import com.qiyue.cashflow.data.RepeatRule
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
+import java.time.LocalDate
 
 class BalanceExpressionTest {
     @Test fun additionAndSubtractionUseExactMinorUnits() {
@@ -39,5 +43,19 @@ class BalanceExpressionTest {
         assertEquals(3_333L to 3_335L,installmentBreakdown(10_001L,3))
         assertNull(installmentBreakdown(100L,1))
         assertEquals(setOf("USD","CRYPTO"),parseCurrencyCodeCsv("usd, CRYPTO,usd"))
+    }
+
+    @Test fun installmentCardShowsExactRemainingAmountIncludingLastPeriodTail() {
+        val plan=PlannedTransactionEntity(
+            name="分期",type=EntryType.EXPENSE,amountCents=3_333L,
+            accountName="银行",
+            startDateEpochDay=LocalDate.of(2026,8,10).toEpochDay(),
+            repeatRule=RepeatRule.MONTHLY,installmentTotal=3,installmentRemaining=2,
+            installmentTotalAmountCents=10_001L
+        )
+        assertEquals(2,remainingInstallmentPeriods(plan))
+        assertEquals(6_668L,installmentRemainingAmount(plan))
+        assertEquals(LocalDate.of(2026,8,10),nextPlanDate(plan,LocalDate.of(2026,8,1)))
+        assertNull(nextPlanDate(plan.copy(isActive=false),LocalDate.of(2026,8,1)))
     }
 }

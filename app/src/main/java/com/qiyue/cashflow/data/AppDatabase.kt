@@ -13,7 +13,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         PlannedTransactionEntity::class, BudgetEntity::class,
         AdjustmentEntity::class, CryptoHoldingEntity::class, AppSettingsEntity::class
     ],
-    version = 8,
+    version = 9,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -34,6 +34,7 @@ abstract class AppDatabase : RoomDatabase() {
                 MIGRATION_5_6,
                 MIGRATION_6_7,
                 MIGRATION_7_8,
+                MIGRATION_8_9,
             ).build().also { instance = it }
         }
 
@@ -97,6 +98,12 @@ abstract class AppDatabase : RoomDatabase() {
                         "WHEN showUsdOnHome = 0 THEN 'USD' " +
                         "WHEN showCryptoOnHome = 0 THEN 'CRYPTO' ELSE '' END"
                 )
+            }
+        }
+
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE AppSettingsEntity ADD COLUMN showFinanceTips INTEGER NOT NULL DEFAULT 1")
             }
         }
     }

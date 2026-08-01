@@ -58,7 +58,9 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
     var tab by remember { mutableStateOf(Tab.HOME) }
     MaterialTheme(colorScheme = lightColorScheme(primary = Green, error = Red, surface = Color.White)) {
         Scaffold(
-            topBar = { TopAppBar(title = { Text(tab.title, fontWeight = FontWeight.Bold) }) },
+            topBar = { TopAppBar(title = {
+                Text(if(tab==Tab.HOME) "啥时候有钱" else tab.title,fontWeight=FontWeight.Bold)
+            }) },
             bottomBar = { NavigationBar {
                 Tab.entries.forEach { item -> NavigationBarItem(
                     selected = tab == item,
@@ -560,8 +562,8 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
             Text("如有存款、基金等投资，建议用“未来临时收支”功能替代。",color=Color.Gray)
             Spacer(Modifier.height(8.dp))
             Text("开发者：尚宸鸣 | 使用 Codex 协助开发")
-            TextButton({uriHandler.openUri("https://github.com/7panni")},contentPadding=PaddingValues(0.dp)) {
-                Text("GitHub：github.com/7panni")
+            TextButton({uriHandler.openUri("https://github.com/7panni/cashflow-forecast")},contentPadding=PaddingValues(0.dp)) {
+                Text("项目地址：github.com/7panni/cashflow-forecast")
             }
             TextButton({uriHandler.openUri("https://7panni.com")},contentPadding=PaddingValues(0.dp)) {
                 Text("Blog：7panni.com")

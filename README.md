@@ -4,6 +4,8 @@
 
 当前为简易版，仅供简单计算现金状况，暂未包含理财统计功能。开发者：尚宸鸣，使用 OpenAI Codex 协助开发。
 
+项目地址：[github.com/7panni/cashflow-forecast](https://github.com/7panni/cashflow-forecast)
+
 ## 功能
 
 - 多账户余额：人民币、美元、常用外币与数字货币分开显示，不做汇率换算

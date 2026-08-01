@@ -39,6 +39,22 @@ class ForecastEngineTest {
         assertFalse(engine.occursOn(installment, CivilDate(2026, 3, 31).toEpochDay()))
     }
 
+    @Test fun installmentTotalIsSplitExactlyAndTailGoesToLastPayment() {
+        val installment = CorePlan(
+            name="分期",type=CoreEntryType.EXPENSE,amountMinor=3_333,currencyCode="CNY",accountName="A",
+            startEpochDay=today,repeatRule=CoreRepeatRule.MONTHLY,
+            installmentTotal=3,installmentRemaining=3,installmentTotalAmountMinor=10_001,
+        )
+        assertEquals(3_333,engine.installmentAmountOn(installment,today))
+        assertEquals(3_333,engine.installmentAmountOn(installment,CivilDate(2026,2,28).toEpochDay()))
+        assertEquals(3_335,engine.installmentAmountOn(installment,CivilDate(2026,3,31).toEpochDay()))
+        val result=engine.forecast(
+            accounts=listOf(CoreAccount("A",20_000,"CNY")),plans=listOf(installment),
+            budgets=emptyList(),adjustments=emptyList(),todayEpochDay=today,horizonDays=61,
+        )
+        assertEquals(9_999,result.endCnyMinor)
+    }
+
     @Test fun repeatingBudgetAdjustmentAndExcludedAccountMatchCashRules() {
         val result = engine.forecast(
             accounts = listOf(

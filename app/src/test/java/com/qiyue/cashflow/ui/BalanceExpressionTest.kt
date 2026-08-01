@@ -34,4 +34,10 @@ class BalanceExpressionTest {
     @Test fun accountVisibilityCsvIgnoresInvalidValues() {
         assertEquals(setOf(1L, 8L, 21L), parseAccountIdCsv("1, 8,bad,21,8"))
     }
+
+    @Test fun installmentBreakdownKeepsExactTotal() {
+        assertEquals(3_333L to 3_335L,installmentBreakdown(10_001L,3))
+        assertNull(installmentBreakdown(100L,1))
+        assertEquals(setOf("USD","CRYPTO"),parseCurrencyCodeCsv("usd, CRYPTO,usd"))
+    }
 }

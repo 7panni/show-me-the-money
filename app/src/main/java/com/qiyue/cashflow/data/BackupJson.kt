@@ -11,12 +11,13 @@ data class ForecastBackup(
     val settings: AppSettingsEntity,
     val holdings: List<CryptoHoldingEntity> = emptyList(),
     val hasAccountVisibilitySettings: Boolean = true,
+    val hasHomeCurrencySettings: Boolean = true,
 )
 
 object BackupJson {
     fun encode(data: ForecastBackup): String = JSONObject().apply {
         put("format", "cashflow-forecast")
-        put("version", 2)
+        put("version", 3)
         put("accounts", JSONArray(data.accounts.map { a -> JSONObject().apply {
             put("id", a.id); put("name", a.name); put("initialBalance", a.initialBalanceCents); put("balance", a.currentBalanceCents)
             put("currency", a.currencyCode); put("rate", a.exchangeRateToCnyMicros)
@@ -27,7 +28,8 @@ object BackupJson {
             put("currency", p.currencyCode); put("rate", p.exchangeRateToCnyMicros)
             put("account", p.accountName); put("toAccount", p.toAccountName)
             put("start", p.startDateEpochDay); put("repeat", p.repeatRule.name); put("end", p.endDateEpochDay)
-            put("installmentTotal", p.installmentTotal); put("installmentRemaining", p.installmentRemaining); put("active", p.isActive)
+            put("installmentTotal", p.installmentTotal); put("installmentRemaining", p.installmentRemaining)
+            put("installmentTotalAmount", p.installmentTotalAmountCents); put("active", p.isActive)
         }}))
         put("budgets", JSONArray(data.budgets.map { b -> JSONObject().apply {
             put("id", b.id); put("name", b.name); put("total", b.totalCents); put("remaining", b.remainingCents)
@@ -54,6 +56,7 @@ object BackupJson {
             put("appMode", data.settings.appMode)
             put("customModules", data.settings.customModulesCsv)
             put("hiddenAccountIds", data.settings.hiddenAccountIdsCsv)
+            put("hiddenHomeCurrencies", data.settings.hiddenHomeCurrenciesCsv)
             put("onboardingCompleted", data.settings.onboardingCompleted)
             put("seeded", data.settings.seeded)
         })
@@ -73,7 +76,8 @@ object BackupJson {
             currencyCode=o.getString("currency"), exchangeRateToCnyMicros=o.getLong("rate"), accountName=o.getString("account"),
             toAccountName=o.optString("toAccount").takeIf { it.isNotBlank() && it != "null" }, startDateEpochDay=o.getLong("start"),
             repeatRule=RepeatRule.valueOf(o.getString("repeat")), endDateEpochDay=o.optLong("end").takeIf { !o.isNull("end") },
-            installmentTotal=o.getInt("installmentTotal"), installmentRemaining=o.getInt("installmentRemaining"), isActive=o.getBoolean("active")
+            installmentTotal=o.getInt("installmentTotal"), installmentRemaining=o.getInt("installmentRemaining"),
+            installmentTotalAmountCents=o.optLong("installmentTotalAmount", 0), isActive=o.getBoolean("active")
         )}
         val budgets = root.getJSONArray("budgets").objects().map { o -> BudgetEntity(
             id=o.getLong("id"), name=o.getString("name"), totalCents=o.getLong("total"), remainingCents=o.getLong("remaining"),
@@ -104,11 +108,13 @@ object BackupJson {
                 appMode=s.optString("appMode", "SIMPLE"),
                 customModulesCsv=s.optString("customModules", ""),
                 hiddenAccountIdsCsv=s.optString("hiddenAccountIds", ""),
+                hiddenHomeCurrenciesCsv=s.optString("hiddenHomeCurrencies", ""),
                 onboardingCompleted=s.optBoolean("onboardingCompleted", true),
                 seeded=s.optBoolean("seeded", true)
             ),
             holdings,
             s.has("hiddenAccountIds"),
+            s.has("hiddenHomeCurrencies"),
         )
     }
 }

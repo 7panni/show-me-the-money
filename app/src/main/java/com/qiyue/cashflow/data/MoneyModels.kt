@@ -74,6 +74,7 @@ data class PlannedTransactionEntity(
     val endDateEpochDay: Long? = null,
     val installmentTotal: Int = 1,
     val installmentRemaining: Int = 0,
+    val installmentTotalAmountCents: Long = 0,
     val isActive: Boolean = true
 )
 
@@ -126,6 +127,7 @@ data class AppSettingsEntity(
     val appMode: String = "SIMPLE",
     val customModulesCsv: String = "",
     val hiddenAccountIdsCsv: String = "",
+    val hiddenHomeCurrenciesCsv: String = "",
     val onboardingCompleted: Boolean = false,
     val seeded: Boolean = false
 )

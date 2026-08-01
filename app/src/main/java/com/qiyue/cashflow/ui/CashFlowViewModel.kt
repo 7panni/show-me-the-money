@@ -7,8 +7,6 @@ import com.qiyue.cashflow.cashflow.CashFlowCalculator
 import com.qiyue.cashflow.cashflow.CashFlowSummary
 import com.qiyue.cashflow.data.*
 import com.qiyue.cashflow.shared.AppMode
-import com.qiyue.cashflow.shared.AppProfile
-import com.qiyue.cashflow.shared.FeatureModule
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -112,45 +110,52 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
         message.value = "真实余额已更新"
     }
 
+    fun transferBalance(fromId: Long, toId: Long, amount: Long) = launch {
+        val accounts = dao.getAccounts()
+        val from = accounts.firstOrNull { it.id == fromId }
+        val to = accounts.firstOrNull { it.id == toId }
+        when {
+            from == null || to == null -> message.value = "找不到转账账户"
+            from.id == to.id -> message.value = "转出和转入账户不能相同"
+            from.currencyCode != to.currencyCode -> message.value = "当前只支持相同币种账户之间转账"
+            amount <= 0L -> message.value = "请输入正确的转账金额"
+            from.currentBalanceCents < amount -> message.value = "转出账户余额不足"
+            dao.transferAccountBalance(fromId, toId, amount) -> message.value = "转账完成，两个账户的真实余额已更新"
+            else -> message.value = "转账失败，请重新确认账户和金额"
+        }
+    }
+
     fun updateSettings(
         defaultDays: Int,
         budgetStartDay: Int,
-        showUsd: Boolean,
-        showCrypto: Boolean,
+        hiddenHomeCurrencies: Set<String>,
         hiddenAccountIds: Set<Long>,
-        appMode: AppMode,
-        customModules: Set<FeatureModule>,
     ) = launch {
-        val profile = AppProfile(appMode, customModules)
         val accounts = dao.getAccounts()
         fun shows(type: AccountType) = accounts.none { it.accountType == type } ||
             accounts.any { it.accountType == type && it.id !in hiddenAccountIds }
         dao.upsertSettings(uiState.value.settings.copy(
             defaultHorizonDays = defaultDays,
             budgetMonthStartDay = budgetStartDay.coerceIn(1, 28),
-            showUsdOnHome = showUsd,
-            showCryptoOnHome = showCrypto,
+            showUsdOnHome = "USD" !in hiddenHomeCurrencies,
+            showCryptoOnHome = "CRYPTO" !in hiddenHomeCurrencies,
             showPaypalOnAccounts = shows(AccountType.PAYPAL),
             showAlipayOnAccounts = shows(AccountType.ALIPAY),
             showCryptoOnAccounts = shows(AccountType.CRYPTO),
-            appMode = appMode.name,
-            customModulesCsv = profile.modulesCsv(),
             hiddenAccountIdsCsv = hiddenAccountIds.intersect(accounts.map { it.id }.toSet())
                 .sorted().joinToString(","),
+            hiddenHomeCurrenciesCsv = hiddenHomeCurrencies.map { it.uppercase() }.distinct().sorted().joinToString(","),
             onboardingCompleted = true,
             seeded = true
         ))
         horizon.value = defaultDays
-        message.value = "设置已保存；切换模式不会删除现有数据"
+        message.value = "设置已保存"
     }
 
     fun completeOnboarding(
-        mode: AppMode,
-        customModules: Set<FeatureModule>,
         accountTypes: Set<AccountType>,
         addExamples: Boolean,
     ) = launch {
-        val profile = AppProfile(mode, customModules)
         val chosenTypes = accountTypes.ifEmpty { setOf(AccountType.CASH) }
         if (dao.accountCount() == 0) {
             val examples = if (addExamples) exampleBalances else emptyMap()
@@ -162,7 +167,7 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
                     CryptoHoldingEntity("LTC"),
                 ))
             }
-            if (addExamples) addExampleForecastData(profile)
+            if (addExamples) addExampleForecastData()
         }
         val createdAccounts = dao.getAccounts()
         val hiddenAccountIds = defaultHiddenAccountIds(createdAccounts)
@@ -172,9 +177,10 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
             showPaypalOnAccounts = AccountType.PAYPAL in chosenTypes,
             showAlipayOnAccounts = AccountType.ALIPAY in chosenTypes,
             showCryptoOnAccounts = AccountType.CRYPTO in chosenTypes,
-            appMode = mode.name,
-            customModulesCsv = profile.modulesCsv(),
+            appMode = AppMode.SIMPLE.name,
+            customModulesCsv = "",
             hiddenAccountIdsCsv = hiddenAccountIds.sorted().joinToString(","),
+            hiddenHomeCurrenciesCsv = "",
             onboardingCompleted = true,
             seeded = true,
         ))
@@ -186,6 +192,7 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
         dao.replaceForecastData(emptyList(), emptyList(), emptyList(), emptyList(),
             uiState.value.settings.copy(
                 hiddenAccountIdsCsv = "",
+                hiddenHomeCurrenciesCsv = "",
                 seeded = true,
                 onboardingCompleted = true,
             ))
@@ -207,6 +214,14 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
             } else {
                 defaultHiddenAccountIds(restoredAccounts)
             }
+            val restoredHiddenCurrencies = if (it.hasHomeCurrencySettings) {
+                parseCurrencyCodes(it.settings.hiddenHomeCurrenciesCsv)
+            } else {
+                buildSet {
+                    if (!it.settings.showUsdOnHome) add("USD")
+                    if (!it.settings.showCryptoOnHome) add("CRYPTO")
+                }
+            }
             dao.replaceForecastData(
                 restoredAccounts,
                 it.plans.map { plan -> plan.copy(
@@ -222,7 +237,10 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
                 it.adjustments.map { adjustment ->
                     adjustment.copy(accountName = renamed(adjustment.accountName))
                 },
-                it.settings.copy(hiddenAccountIdsCsv = restoredHiddenIds.sorted().joinToString(",")),
+                it.settings.copy(
+                    hiddenAccountIdsCsv = restoredHiddenIds.sorted().joinToString(","),
+                    hiddenHomeCurrenciesCsv = restoredHiddenCurrencies.sorted().joinToString(","),
+                ),
                 it.holdings
             )
             horizon.value = it.settings.defaultHorizonDays
@@ -243,7 +261,7 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
         ))
     }
 
-    private suspend fun addExampleForecastData(profile: AppProfile) {
+    private suspend fun addExampleForecastData() {
         val accounts = dao.getAccounts()
         val cnyAccount = accounts.firstOrNull { it.currencyCode == "CNY" } ?: return
         val today = LocalDate.now()
@@ -257,28 +275,6 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
             accountName = cnyAccount.name, startDateEpochDay = today.plusDays(10).toEpochDay(),
             repeatRule = RepeatRule.MONTHLY,
         ))
-        if (profile.isEnabled(FeatureModule.INSTALLMENT)) {
-            dao.upsertPlan(PlannedTransactionEntity(
-                name = "示例分期", type = EntryType.EXPENSE, amountCents = 30_000,
-                accountName = cnyAccount.name, startDateEpochDay = today.plusDays(7).toEpochDay(),
-                repeatRule = RepeatRule.MONTHLY, installmentTotal = 3, installmentRemaining = 3,
-            ))
-        }
-        if (profile.isEnabled(FeatureModule.BUDGET)) {
-            val (cycleStart, cycleEnd) = BudgetCycles.containing(today, 21)
-            dao.upsertBudget(BudgetEntity(
-                name = "预算", totalCents = 200_000, remainingCents = 150_000,
-                period = BudgetPeriod.MONTHLY, startDateEpochDay = cycleStart.toEpochDay(),
-                endDateEpochDay = cycleEnd.toEpochDay(), accountName = "",
-            ))
-        }
-        if (profile.isEnabled(FeatureModule.TEMPORARY_CASHFLOW)) {
-            dao.upsertAdjustment(AdjustmentEntity(
-                name = "示例临时收入", type = AdjustmentType.TEMPORARY, amountCents = 50_000,
-                accountName = cnyAccount.name, dateEpochDay = today.plusDays(14).toEpochDay(),
-                isIncome = true,
-            ))
-        }
     }
 
     private fun defaultAccount(type: AccountType, balance: Long): AccountEntity {
@@ -454,6 +450,11 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
 
         private fun parseAccountIds(csv: String): Set<Long> = csv.split(',')
             .mapNotNull { it.trim().toLongOrNull() }
+            .toSet()
+
+        private fun parseCurrencyCodes(csv: String): Set<String> = csv.split(',')
+            .map { it.trim().uppercase() }
+            .filter { it.isNotBlank() }
             .toSet()
 
         private fun defaultHiddenAccountIds(accounts: List<AccountEntity>): Set<Long> {

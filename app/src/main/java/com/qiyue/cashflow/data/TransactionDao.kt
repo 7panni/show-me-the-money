@@ -36,6 +36,7 @@ interface TransactionDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE) suspend fun insertTransaction(item: TransactionEntity): Long
     @Query("SELECT COUNT(*) FROM AccountEntity") suspend fun accountCount(): Int
     @Query("SELECT * FROM AccountEntity") suspend fun getAccounts(): List<AccountEntity>
+    @Query("SELECT * FROM AccountEntity WHERE id=:id LIMIT 1") suspend fun getAccount(id: Long): AccountEntity?
     @Query("SELECT * FROM PlannedTransactionEntity") suspend fun getPlans(): List<PlannedTransactionEntity>
     @Query("SELECT * FROM BudgetEntity") suspend fun getBudgets(): List<BudgetEntity>
     @Query("SELECT * FROM BudgetEntity WHERE name=:name LIMIT 1") suspend fun getBudgetByName(name: String): BudgetEntity?
@@ -70,6 +71,18 @@ interface TransactionDao {
     suspend fun renameTransactionAccount(oldName: String, newName: String)
     @Query("UPDATE TransactionEntity SET toAccountName=:newName WHERE toAccountName=:oldName")
     suspend fun renameTransactionTargetAccount(oldName: String, newName: String)
+
+    @Transaction
+    suspend fun transferAccountBalance(fromId: Long, toId: Long, amount: Long): Boolean {
+        val from = getAccount(fromId) ?: return false
+        val to = getAccount(toId) ?: return false
+        if (from.id == to.id || from.currencyCode != to.currencyCode || amount <= 0L) return false
+        if (from.currentBalanceCents < amount) return false
+        val newTargetBalance = runCatching { Math.addExact(to.currentBalanceCents, amount) }.getOrNull() ?: return false
+        upsertAccount(from.copy(currentBalanceCents = from.currentBalanceCents - amount))
+        upsertAccount(to.copy(currentBalanceCents = newTargetBalance))
+        return true
+    }
 
     @Transaction
     suspend fun replaceForecastData(

@@ -14,13 +14,13 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class AppDatabaseMigrationTest {
     private val context = ApplicationProvider.getApplicationContext<Context>()
-    private val databaseName = "migration-5-7-test.db"
+    private val databaseName = "migration-5-8-test.db"
 
     @After fun cleanUp() {
         context.deleteDatabase(databaseName)
     }
 
-    @Test fun migration5To7PreservesSettingsAndAddsVisibilityChoices() {
+    @Test fun migration5To8PreservesSettingsAndAddsInstallmentAndVisibilityChoices() {
         context.deleteDatabase(databaseName)
         val helper = FrameworkSQLiteOpenHelperFactory().create(
             SupportSQLiteOpenHelper.Configuration.builder(context)
@@ -35,7 +35,8 @@ class AppDatabaseMigrationTest {
                                 "showPaypalOnAccounts INTEGER NOT NULL, showAlipayOnAccounts INTEGER NOT NULL, " +
                                 "showCryptoOnAccounts INTEGER NOT NULL, seeded INTEGER NOT NULL)"
                         )
-                        db.execSQL("INSERT INTO AppSettingsEntity VALUES (1,7200000,365,21,1,1,0,1,0,1)")
+                        db.execSQL("CREATE TABLE PlannedTransactionEntity (id INTEGER NOT NULL PRIMARY KEY)")
+                        db.execSQL("INSERT INTO AppSettingsEntity VALUES (1,7200000,365,21,0,1,0,1,0,1)")
                     }
                     override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
                 })
@@ -44,13 +45,18 @@ class AppDatabaseMigrationTest {
         helper.writableDatabase.use { db ->
             AppDatabase.MIGRATION_5_6.migrate(db)
             AppDatabase.MIGRATION_6_7.migrate(db)
-            db.query("SELECT defaultHorizonDays, appMode, customModulesCsv, onboardingCompleted, hiddenAccountIdsCsv FROM AppSettingsEntity WHERE id=1").use { cursor ->
+            AppDatabase.MIGRATION_7_8.migrate(db)
+            db.query("SELECT defaultHorizonDays, appMode, customModulesCsv, onboardingCompleted, hiddenAccountIdsCsv, hiddenHomeCurrenciesCsv FROM AppSettingsEntity WHERE id=1").use { cursor ->
                 cursor.moveToFirst()
                 assertEquals(365, cursor.getInt(0))
                 assertEquals("FULL", cursor.getString(1))
                 assertEquals("", cursor.getString(2))
                 assertEquals(1, cursor.getInt(3))
                 assertEquals("", cursor.getString(4))
+                assertEquals("USD", cursor.getString(5))
+            }
+            db.query("SELECT installmentTotalAmountCents FROM PlannedTransactionEntity").use { cursor ->
+                assertEquals(1,cursor.columnCount)
             }
         }
         helper.close()

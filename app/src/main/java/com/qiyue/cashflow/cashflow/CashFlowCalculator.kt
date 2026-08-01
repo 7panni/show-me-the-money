@@ -104,6 +104,7 @@ private fun PlannedTransactionEntity.toCore() = CorePlan(
     endEpochDay = endDateEpochDay,
     installmentTotal = installmentTotal,
     installmentRemaining = installmentRemaining,
+    installmentTotalAmountMinor = installmentTotalAmountCents,
     active = isActive,
 )
 

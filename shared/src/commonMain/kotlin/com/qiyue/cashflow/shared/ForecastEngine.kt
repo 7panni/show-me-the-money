@@ -25,6 +25,7 @@ data class CorePlan(
     val endEpochDay: Long? = null,
     val installmentTotal: Int = 1,
     val installmentRemaining: Int = 0,
+    val installmentTotalAmountMinor: Long = 0,
     val active: Boolean = true,
 )
 
@@ -117,20 +118,21 @@ class CoreForecastEngine {
                 val epochDay = todayEpochDay + offset
                 val events = mutableListOf<CoreForecastEvent>()
                 plans.filter { it.active && occursOn(it, epochDay) }.forEach { plan ->
+                    val occurrenceAmount = installmentAmountOn(plan, epochDay)
                     when (plan.type) {
                         CoreEntryType.INCOME, CoreEntryType.REFUND -> {
-                            balances[plan.accountName] = (balances[plan.accountName] ?: 0L) + plan.amountMinor
-                            events += CoreForecastEvent(plan.name, plan.amountMinor, plan.currencyCode, plan.accountName, "固定收入")
+                            balances[plan.accountName] = (balances[plan.accountName] ?: 0L) + occurrenceAmount
+                            events += CoreForecastEvent(plan.name, occurrenceAmount, plan.currencyCode, plan.accountName, "固定收入")
                         }
                         CoreEntryType.EXPENSE, CoreEntryType.DEBT -> {
-                            balances[plan.accountName] = (balances[plan.accountName] ?: 0L) - plan.amountMinor
+                            balances[plan.accountName] = (balances[plan.accountName] ?: 0L) - occurrenceAmount
                             val kind = if (plan.installmentTotal > 1) "分期付款" else "固定支出"
-                            events += CoreForecastEvent(plan.name, -plan.amountMinor, plan.currencyCode, plan.accountName, kind)
+                            events += CoreForecastEvent(plan.name, -occurrenceAmount, plan.currencyCode, plan.accountName, kind)
                         }
                         CoreEntryType.TRANSFER -> {
-                            balances[plan.accountName] = (balances[plan.accountName] ?: 0L) - plan.amountMinor
+                            balances[plan.accountName] = (balances[plan.accountName] ?: 0L) - occurrenceAmount
                             plan.targetAccountName?.let { target ->
-                                balances[target] = (balances[target] ?: 0L) + plan.amountMinor
+                                balances[target] = (balances[target] ?: 0L) + occurrenceAmount
                             }
                             events += CoreForecastEvent(plan.name, 0L, plan.currencyCode, plan.accountName, "账户转账")
                         }
@@ -180,7 +182,30 @@ class CoreForecastEngine {
 
     fun occursOn(plan: CorePlan, epochDay: Long): Boolean {
         if (epochDay < plan.startEpochDay || plan.endEpochDay?.let { epochDay > it } == true) return false
-        val occurrenceIndex = when (plan.repeatRule) {
+        val occurrenceIndex = occurrenceIndex(plan, epochDay)
+        return occurrenceIndex >= 0 && (plan.installmentRemaining <= 0 || occurrenceIndex < plan.installmentRemaining)
+    }
+
+    fun installmentAmountOn(plan: CorePlan, epochDay: Long): Long {
+        val occurrenceIndex = occurrenceIndex(plan, epochDay)
+        if (occurrenceIndex < 0 || plan.installmentTotal <= 1 || plan.installmentTotalAmountMinor <= 0L) {
+            return plan.amountMinor
+        }
+        val totalPeriods = plan.installmentTotal.coerceAtLeast(1)
+        val remainingPeriods = plan.installmentRemaining.takeIf { it > 0 }?.coerceAtMost(totalPeriods) ?: totalPeriods
+        val paidPeriods = totalPeriods - remainingPeriods
+        val originalIndex = paidPeriods + occurrenceIndex
+        val regularAmount = plan.installmentTotalAmountMinor / totalPeriods
+        return if (originalIndex >= totalPeriods - 1) {
+            plan.installmentTotalAmountMinor - regularAmount * (totalPeriods - 1L)
+        } else {
+            regularAmount
+        }
+    }
+
+    private fun occurrenceIndex(plan: CorePlan, epochDay: Long): Int {
+        if (epochDay < plan.startEpochDay || plan.endEpochDay?.let { epochDay > it } == true) return -1
+        return when (plan.repeatRule) {
             CoreRepeatRule.NONE -> if (epochDay == plan.startEpochDay) 0 else -1
             CoreRepeatRule.DAILY -> (epochDay - plan.startEpochDay).toInt()
             CoreRepeatRule.WEEKLY -> if ((epochDay - plan.startEpochDay) % 7L == 0L) ((epochDay - plan.startEpochDay) / 7L).toInt() else -1
@@ -188,7 +213,6 @@ class CoreForecastEngine {
             CoreRepeatRule.QUARTERLY -> periodicMonthIndex(plan.startEpochDay, epochDay, 3)
             CoreRepeatRule.YEARLY -> periodicMonthIndex(plan.startEpochDay, epochDay, 12)
         }
-        return occurrenceIndex >= 0 && (plan.installmentRemaining <= 0 || occurrenceIndex < plan.installmentRemaining)
     }
 
     private fun periodicMonthIndex(startEpochDay: Long, epochDay: Long, step: Int): Int {

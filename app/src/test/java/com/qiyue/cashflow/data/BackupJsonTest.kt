@@ -19,7 +19,8 @@ class BackupJsonTest {
                 id = 2, name = "年费", type = EntryType.EXPENSE, amountCents = 9_900,
                 accountName = "美元账户", startDateEpochDay = today,
                 repeatRule = RepeatRule.YEARLY, endDateEpochDay = today + 730,
-                installmentTotal = 2, installmentRemaining = 1
+                installmentTotal = 2, installmentRemaining = 1,
+                installmentTotalAmountCents = 19_801,
             )),
             budgets = listOf(BudgetEntity(
                 id = 3, name = "旅行", totalCents = 50_000, remainingCents = 32_000,
@@ -41,6 +42,7 @@ class BackupJsonTest {
                 appMode = "CUSTOM",
                 customModulesCsv = "BUDGET,TRANSFER",
                 hiddenAccountIdsCsv = "1,8,21",
+                hiddenHomeCurrenciesCsv = "CRYPTO,USD",
                 onboardingCompleted = true,
                 seeded = true
             ),
@@ -74,11 +76,13 @@ class BackupJsonTest {
                 remove("customModules")
                 remove("onboardingCompleted")
                 remove("hiddenAccountIds")
+                remove("hiddenHomeCurrencies")
             }
         }.toString()
         val restored = BackupJson.decode(legacy)
         assertEquals("SIMPLE", restored.settings.appMode)
         assertTrue(restored.settings.onboardingCompleted)
         assertTrue(!restored.hasAccountVisibilitySettings)
+        assertTrue(!restored.hasHomeCurrencySettings)
     }
 }

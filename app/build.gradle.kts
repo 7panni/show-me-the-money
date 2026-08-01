@@ -13,8 +13,8 @@ android {
         applicationId = "com.qiyue.cashflow.forecast"
         minSdk = 26
         targetSdk = 35
-        versionCode = 15
-        versionName = "0.9.0-test"
+        versionCode = 16
+        versionName = "1.0.0-test"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

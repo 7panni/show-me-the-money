@@ -8,6 +8,17 @@ A simple and intuitive cash flow forecasting app for mobile. Maintain account ba
 
 项目地址：[github.com/7panni/show-me-the-money](https://github.com/7panni/show-me-the-money)
 
+## 界面示意
+
+以下图片全部使用虚拟示例金额，不含真实账户或用户数据。
+
+<p align="center">
+  <img src="docs/screenshots/home-virtual-data.png" width="220" alt="首页界面示意图（虚拟数据）">
+  <img src="docs/screenshots/plans-virtual-data.png" width="220" alt="计划页界面示意图（虚拟数据）">
+  <img src="docs/screenshots/accounts-virtual-data.png" width="220" alt="账户页界面示意图（虚拟数据）">
+  <img src="docs/screenshots/settings-virtual-data.png" width="220" alt="设置页界面示意图（虚拟数据）">
+</p>
+
 ## 功能
 
 - 多账户余额：人民币、美元、常用外币与数字货币分开显示，不做汇率换算
@@ -33,7 +44,7 @@ A simple and intuitive cash flow forecasting app for mobile. Maintain account ba
 
 ## 隐私
 
-所有数据仅保存在设备本地。首次启动的可选示例均明确标注为虚构示例。本仓库不包含任何真实账户余额、备份、APK 或测试数据库。
+所有数据仅保存在设备本地。首次启动的可选示例均明确标注为虚构示例。本仓库不包含任何真实账户余额、备份或测试数据库；安装包仅通过 GitHub Releases 发布。
 
 ## 构建
 

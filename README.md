@@ -1,17 +1,20 @@
-# 啥时候有钱
+# Show Me the Money（啥时候有钱）
 
-一个只在本机保存数据的 Android 现金流预测工具。维护账户真实余额、周期款项、预算和未来临时收支，即可查看未来余额变化。
+一款简单直观的移动端现金流预测应用。维护账户余额、周期款项、预算和未来临时收支，即可查看未来余额变化。所有数据只保存在本机。
+
+A simple and intuitive cash flow forecasting app for mobile. Maintain account balances, recurring items, budgets, and temporary adjustments to see how cash may change over time.
 
 当前为简易版，仅供简单计算现金状况，暂未包含理财统计功能。开发者：尚宸鸣，使用 OpenAI Codex 协助开发。
 
-项目地址：[github.com/7panni/cashflow-forecast](https://github.com/7panni/cashflow-forecast)
+项目地址：[github.com/7panni/show-me-the-money](https://github.com/7panni/show-me-the-money)
 
 ## 功能
 
 - 多账户余额：人民币、美元、常用外币与数字货币分开显示，不做汇率换算
-- 固定收入、支出与自动计算每期金额的分期付款
+- 固定收入、支出按每次金额循环，不显示容易误解的总剩余
+- 分期可按每期金额计算剩余总额，也可按总额自动计算每期金额
 - 每张账户卡可直接发起同币种转账，支持转账前余额确认和完成后撤销
-- 每周、每月、每季度、每年计划
+- 每周、每月、每季度、每半年、每年计划
 - 周期预算和未来临时收支
 - 30、90、365 天余额预测与可查看数值的走势图
 - JSON 完整备份与恢复
@@ -21,11 +24,12 @@
 - 计划卡直接显示下次发生日期；分期显示剩余期数和剩余总额
 - 在现金可能为负、分期和转账场景显示可关闭的财务常识
 
-## 1.1 架构
+## 当前平台与架构
 
+- 当前可安装版本：Android
 - `app`：Android 界面与 Room 本地数据库
 - `shared`：Android/iPhone 共用的整数金额、日期和现金流预测核心
-- `iosApp`：iPhone SwiftUI 源码底座；按当前开发安排，尚未下载 Xcode 或执行 Apple 端测试
+- `iosApp`：iPhone SwiftUI 源码底座；待具备 Xcode 与 Wi-Fi 环境后继续构建和测试
 
 ## 隐私
 

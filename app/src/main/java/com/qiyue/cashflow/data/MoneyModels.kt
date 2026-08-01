@@ -6,7 +6,7 @@ import androidx.room.PrimaryKey
 
 enum class EntryType { EXPENSE, INCOME, DEBT, TRANSFER, REFUND }
 enum class AccountType { CASH, WECHAT, ALIPAY, CMB, PAYPAL, CRYPTO, CUSTOM }
-enum class RepeatRule { NONE, DAILY, WEEKLY, MONTHLY, QUARTERLY, YEARLY }
+enum class RepeatRule { NONE, DAILY, WEEKLY, MONTHLY, QUARTERLY, SEMIANNUAL, YEARLY }
 enum class BudgetPeriod { WEEKLY, MONTHLY, CUSTOM }
 enum class BudgetMethod { DAILY_AVERAGE, SPECIFIC_DAY }
 enum class AdjustmentType { BALANCE_CALIBRATION, TEMPORARY }

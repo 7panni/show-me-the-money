@@ -1,7 +1,7 @@
 package com.qiyue.cashflow.shared
 
 enum class CoreEntryType { EXPENSE, INCOME, DEBT, TRANSFER, REFUND }
-enum class CoreRepeatRule { NONE, DAILY, WEEKLY, MONTHLY, QUARTERLY, YEARLY }
+enum class CoreRepeatRule { NONE, DAILY, WEEKLY, MONTHLY, QUARTERLY, SEMIANNUAL, YEARLY }
 enum class CoreBudgetPeriod { WEEKLY, MONTHLY, CUSTOM }
 enum class CoreBudgetMethod { DAILY_AVERAGE, SPECIFIC_DAY }
 
@@ -211,6 +211,7 @@ class CoreForecastEngine {
             CoreRepeatRule.WEEKLY -> if ((epochDay - plan.startEpochDay) % 7L == 0L) ((epochDay - plan.startEpochDay) / 7L).toInt() else -1
             CoreRepeatRule.MONTHLY -> periodicMonthIndex(plan.startEpochDay, epochDay, 1)
             CoreRepeatRule.QUARTERLY -> periodicMonthIndex(plan.startEpochDay, epochDay, 3)
+            CoreRepeatRule.SEMIANNUAL -> periodicMonthIndex(plan.startEpochDay, epochDay, 6)
             CoreRepeatRule.YEARLY -> periodicMonthIndex(plan.startEpochDay, epochDay, 12)
         }
     }

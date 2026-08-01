@@ -44,9 +44,11 @@ import java.time.ZoneOffset
 import kotlin.math.absoluteValue
 import kotlin.math.roundToInt
 
-private val Green = Color(0xFF147D64)
-private val Red = Color(0xFFB3261E)
-private val Paper = Color(0xFFF5F6F2)
+private val Green = Color(0xFF173F34)
+private val Red = Color(0xFFA64C41)
+private val Paper = Color(0xFFF4F0E8)
+private val Panel = Color(0xFFFAF8F3)
+private val SoftGreen = Color(0xFFD2E2DC)
 private enum class Tab(val title: String, val icon: String) {
     HOME("首页", "⌂"), PLAN("计划", "▤"), ACCOUNT("账户", "¥"), SETTINGS("设置", "⚙")
 }
@@ -56,7 +58,19 @@ private enum class Tab(val title: String, val icon: String) {
 fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
     val state by vm.uiState.collectAsState()
     var tab by remember { mutableStateOf(Tab.HOME) }
-    MaterialTheme(colorScheme = lightColorScheme(primary = Green, error = Red, surface = Color.White)) {
+    MaterialTheme(colorScheme = lightColorScheme(
+        primary = Green,
+        error = Red,
+        surface = Panel,
+        background = Paper,
+        surfaceVariant = SoftGreen,
+    ),shapes=Shapes(
+        extraSmall=RoundedCornerShape(3.dp),
+        small=RoundedCornerShape(3.dp),
+        medium=RoundedCornerShape(3.dp),
+        large=RoundedCornerShape(18.dp),
+        extraLarge=RoundedCornerShape(24.dp),
+    )) {
         Scaffold(
             topBar = { TopAppBar(title = {
                 Text(if(tab==Tab.HOME) "啥时候有钱" else tab.title,fontWeight=FontWeight.Bold)
@@ -153,53 +167,45 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
         ?: s.endBalanceCents
     LazyColumn(Modifier.fillMaxSize().padding(pad), contentPadding=PaddingValues(16.dp), verticalArrangement=Arrangement.spacedBy(12.dp)) {
         item {
-            Card(colors=CardDefaults.cardColors(containerColor=if(s.firstShortageDate!=null) Color(0xFFFFEDEA) else Color.White)) {
-                Column(Modifier.padding(18.dp), verticalArrangement=Arrangement.spacedBy(8.dp)) {
-                    Text("真实余额", fontWeight=FontWeight.Bold, style=MaterialTheme.typography.titleMedium)
-                    Text("人民币", color=Color.Gray)
-                    Text(money(s.currentBalanceCents), style=MaterialTheme.typography.headlineMedium, fontWeight=FontWeight.Bold)
-                    if("USD" !in hiddenHomeCurrencies&&state.accounts.any{it.currencyCode=="USD"}) Metric("美元", usdMoney(s.currentUsdCents))
-                    otherCurrencyBalances.forEach { (currency, amount) ->
-                        Metric(currencyLabel(currency), currencyMoney(amount, currency))
-                    }
-                    if("CRYPTO" !in hiddenHomeCurrencies&&state.accounts.any{it.currencyCode=="CRYPTO"}) {
-                        Text("数字货币",color=Color.Gray)
-                        Text(cryptoSummary(state.cryptoHoldings),fontWeight=FontWeight.SemiBold)
-                    }
-                    HorizontalDivider(Modifier.padding(vertical=4.dp))
-                    Text("预计余额", fontWeight=FontWeight.Bold, style=MaterialTheme.typography.titleMedium)
-                    Metric("月底", money(monthEnd))
-                    Metric("谷底", "${money(s.lowestBalanceCents)} · ${s.lowestDate ?: "—"}", s.lowestBalanceCents < 0)
-                    Metric("高峰", "${money(s.highestBalanceCents)} · ${s.highestDate ?: "—"}")
-                    Metric("预算剩余", money(s.budgetRemainingCents))
-                    Metric(
-                        "首次现金为负",
-                        s.firstShortageDate?.toString() ?: "无",
-                        s.firstShortageDate != null
-                    )
-                }
-            }
-        }
-        if(state.settings.showFinanceTips&&s.firstShortageDate!=null) item {
-            FinanceTip(
-                "预计 ${s.firstShortageDate} 首次出现现金为负。先检查收支发生的时间差，并保留能应对意外的应急资金。",
-                {vm.setFinanceTips(false)}
-            )
+            Card(
+                shape=RoundedCornerShape(22.dp),
+                colors=CardDefaults.cardColors(containerColor=Green),
+            ) { Column(Modifier.padding(20.dp), verticalArrangement=Arrangement.spacedBy(7.dp)) {
+                Text("真实余额", color=Color.White.copy(alpha=.72f), fontWeight=FontWeight.SemiBold)
+                Text(money(s.currentBalanceCents), color=Color.White, style=MaterialTheme.typography.headlineLarge, fontWeight=FontWeight.Bold)
+                Text("人民币", color=Color.White.copy(alpha=.7f), style=MaterialTheme.typography.bodySmall)
+                if("USD" !in hiddenHomeCurrencies&&state.accounts.any{it.currencyCode=="USD"}) HomeCurrencyLine("美元",usdMoney(s.currentUsdCents))
+                otherCurrencyBalances.forEach { (currency, amount) -> HomeCurrencyLine(currencyLabel(currency),currencyMoney(amount,currency)) }
+                if("CRYPTO" !in hiddenHomeCurrencies&&state.accounts.any{it.currencyCode=="CRYPTO"}) HomeCurrencyLine("数字货币",cryptoSummary(state.cryptoHoldings))
+            }}
         }
         item { ChoiceRow(listOf(30,90,365), state.horizonDays, vm::setHorizon) { "${it}天" } }
         item {
-            Card { Column(Modifier.padding(12.dp)) {
-                Text("人民币未来余额", fontWeight=FontWeight.Bold)
-                Spacer(Modifier.height(12.dp))
-                ForecastChart(s.days, Modifier.fillMaxWidth().height(260.dp))
-                Spacer(Modifier.height(8.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement=Arrangement.SpaceBetween) {
-                    Text("今天 ${money(s.currentBalanceCents)}", color=Color.Gray)
-                    Text("${state.horizonDays}天后 ${money(s.endBalanceCents)}", fontWeight=FontWeight.SemiBold)
+            Card(shape=RoundedCornerShape(2.dp),colors=CardDefaults.cardColors(containerColor=Panel)) { Column(Modifier.padding(12.dp)) {
+                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween) {
+                    Text("未来余额走势", fontWeight=FontWeight.Bold)
+                    Text("人民币",color=Color.Gray,style=MaterialTheme.typography.bodySmall)
                 }
+                Spacer(Modifier.height(10.dp))
+                ForecastChart(s.days, Modifier.fillMaxWidth().height(290.dp))
             }}
         }
-        item { Text("即将发生", fontWeight=FontWeight.Bold) }
+        item { Text("预计余额", fontWeight=FontWeight.Bold, style=MaterialTheme.typography.titleMedium) }
+        item {
+            ForecastMetricsGrid(
+                monthEnd=money(monthEnd),
+                lowest="${money(s.lowestBalanceCents)}\n${s.lowestDate ?: "—"}",
+                highest="${money(s.highestBalanceCents)}\n${s.highestDate ?: "—"}",
+                budget=money(s.budgetRemainingCents),
+                warn=s.lowestBalanceCents<0,
+            )
+        }
+        item { ShortageCard(
+            s.firstShortageDate,
+            s.days.firstOrNull{it.date==s.firstShortageDate}?.balanceCents,
+            state.settings.showFinanceTips,
+        ) }
+        item { Text("接下来会发生什么", fontWeight=FontWeight.Bold, style=MaterialTheme.typography.titleMedium) }
         val upcoming = s.days.flatMap { d -> d.events.filterNot { it.kind == "预算" }.map { d to it } }.take(20)
         if (upcoming.isEmpty()) item { EmptyCard("暂无未来款项，请到“计划”添加固定收支。") }
         else items(upcoming) { (day,event) ->
@@ -213,6 +219,60 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
             }}
         }
     }
+}
+
+@Composable private fun HomeCurrencyLine(label:String,value:String) = Row(
+    Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically
+) {
+    Text(label,color=Color.White.copy(alpha=.68f),style=MaterialTheme.typography.bodySmall)
+    Text(value,color=Color.White,fontWeight=FontWeight.SemiBold,style=MaterialTheme.typography.bodyMedium)
+}
+
+@Composable private fun ForecastMetricsGrid(monthEnd:String,lowest:String,highest:String,budget:String,warn:Boolean) {
+    Column(Modifier.fillMaxWidth().background(Panel)) {
+        Row(Modifier.fillMaxWidth()) {
+            ForecastMetricCell("月底",monthEnd,Modifier.weight(1f),false)
+            ForecastMetricCell("谷底",lowest,Modifier.weight(1f),warn)
+        }
+        Row(Modifier.fillMaxWidth()) {
+            ForecastMetricCell("高峰",highest,Modifier.weight(1f),false)
+            ForecastMetricCell("预算剩余",budget,Modifier.weight(1f),false)
+        }
+    }
+}
+
+@Composable private fun ForecastMetricCell(label:String,value:String,modifier:Modifier,warn:Boolean) = Column(
+    modifier.height(92.dp).background(Panel).padding(13.dp),verticalArrangement=Arrangement.spacedBy(7.dp)
+) {
+    Text(label,color=Color.Gray,style=MaterialTheme.typography.bodySmall)
+    Text(value,color=if(warn)Red else Color.Unspecified,fontWeight=FontWeight.Bold,style=MaterialTheme.typography.bodyMedium)
+}
+
+private val shortageMessages = listOf(
+    "现金如同氧气，拥有时容易忽视，缺少时只会想到它。",
+    "无法预知明天，就要为明天做好准备。",
+    "先留有余地，才能从容选择。",
+    "安全边际，是自由选择的起点。",
+    "先保证走完全程，才有机会赢得比赛。",
+    "避免陷入困境，比走出困境更容易。",
+    "留住现金，也是在留住选择。",
+)
+
+@Composable private fun ShortageCard(date:LocalDate?,balanceOnDate:Long?,showTip:Boolean) {
+    val message=remember(date){date?.let{shortageMessages[(it.toEpochDay().absoluteValue%shortageMessages.size).toInt()]}}
+    Card(
+        shape=RoundedCornerShape(2.dp),
+        colors=CardDefaults.cardColors(containerColor=if(date==null)SoftGreen else Color(0xFFF0DDD7)),
+    ) { Column(Modifier.fillMaxWidth().padding(18.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+        Text("现金为负",fontWeight=FontWeight.Bold,style=MaterialTheme.typography.titleMedium,color=if(date==null)Green else Red)
+        if(date==null) Text("当前预测范围及长期检查中：无",fontWeight=FontWeight.SemiBold)
+        else {
+            Text("首次出现：$date",fontWeight=FontWeight.Bold,style=MaterialTheme.typography.titleLarge,color=Red)
+            balanceOnDate?.let{Text("当日预计 ${money(it)}",color=Red)}
+            if(showTip&&message!=null) Text(message,fontWeight=FontWeight.SemiBold)
+            Text("请提前检查发生日期、推迟非必要支出，或补充确定的未来收入。",color=Color(0xFF6F4A43),style=MaterialTheme.typography.bodySmall)
+        }
+    }}
 }
 
 @Composable private fun ForecastChart(days: List<CashFlowDay>, modifier: Modifier) {
@@ -306,6 +366,8 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
 @Composable private fun PlanPage(state: CashFlowUiState, pad: PaddingValues, vm: CashFlowViewModel) {
     var planEdit by remember { mutableStateOf<PlannedTransactionEntity?>(null) }
     var showPlan by remember { mutableStateOf(false) }
+    var newPlanIsInstallment by remember { mutableStateOf(false) }
+    var showAddMenu by remember { mutableStateOf(false) }
     var budgetEdit by remember { mutableStateOf<BudgetEntity?>(null) }
     var showBudget by remember { mutableStateOf(false) }
     var adjustmentEdit by remember { mutableStateOf<AdjustmentEntity?>(null) }
@@ -316,11 +378,15 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
     val occurrenceCalculator = remember { CashFlowCalculator() }
     val today = LocalDate.now()
     LazyColumn(Modifier.fillMaxSize().padding(pad), contentPadding=PaddingValues(16.dp), verticalArrangement=Arrangement.spacedBy(10.dp)) {
-        item { Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-            Button({planEdit=null;showPlan=true}){Text("＋ 新增计划")}
-            OutlinedButton({adjustmentEdit=null;showAdjustment=true}){Text("＋ 未来临时收支")}
+        item { Box {
+            Button({showAddMenu=true}){Text("＋ 新增")}
+            DropdownMenu(showAddMenu,{showAddMenu=false}) {
+                DropdownMenuItem({Column{Text("固定款项");Text("工资、房租等周期款项",style=MaterialTheme.typography.bodySmall,color=Color.Gray)}},{planEdit=null;newPlanIsInstallment=false;showPlan=true;showAddMenu=false})
+                DropdownMenuItem({Column{Text("分期");Text("按每期金额或总额计算",style=MaterialTheme.typography.bodySmall,color=Color.Gray)}},{planEdit=null;newPlanIsInstallment=true;showPlan=true;showAddMenu=false})
+                DropdownMenuItem({Column{Text("未来临时收支");Text("一次性影响未来预测",style=MaterialTheme.typography.bodySmall,color=Color.Gray)}},{adjustmentEdit=null;showAdjustment=true;showAddMenu=false})
+            }
         }}
-        item { Section("固定收入、固定支出与分期") }
+        item { Section("固定款项与分期") }
         if(visiblePlans.isEmpty()) item { EmptyCard("还没有固定款项。先添加工资或房租。") }
         items(visiblePlans, key={"plan-${it.id}"}) { p ->
             val installment=p.installmentTotal>1
@@ -333,7 +399,7 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
                     append(" · 下次 ${next ?: "无"}")
                     if(installment) append(" · 剩余${remainingInstallmentPeriods(p)}期")
                 },
-                amount=if(installment) "剩余 ${currencyMoney(installmentRemainingAmount(p),p.currencyCode)}" else currencyMoney(p.amountCents,p.currencyCode),
+                amount=if(installment) "剩余 ${currencyMoney(installmentRemainingAmount(p),p.currencyCode)}" else "每次 ${currencyMoney(p.amountCents,p.currencyCode)}",
                 active=p.isActive,
                 onToggle={vm.savePlan(p.copy(isActive=!p.isActive))}, onEdit={planEdit=p;showPlan=true},
                 onDelete={delete="“${p.name}”" to {vm.deletePlan(p.id)}}
@@ -348,7 +414,7 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
         }
         items(state.budgets.take(1), key={"budget-${it.id}"}) { b -> DataCard(
             b.name,
-            "${LocalDate.ofEpochDay(b.startDateEpochDay)} 至 ${LocalDate.ofEpochDay(b.endDateEpochDay)} · 用于未来现金预测",
+            "每月自动续期 · 点击“编辑”可修改总预算或剩余预算",
             "剩余 ${money(b.remainingCents)}",
             b.isActive, {vm.saveBudget(b.copy(isActive=!b.isActive))}, {budgetEdit=b;showBudget=true},
             {delete="“${b.name}”" to {vm.deleteBudget(b.id)}})
@@ -373,7 +439,7 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
             ) "计入真实余额" to {vm.applyAdjustmentToBalance(a)} else null)
         }
     }
-    if(showPlan) PlanDialog(planEdit, state, {showPlan=false}, {vm.setFinanceTips(false)}) {vm.savePlan(it);showPlan=false}
+    if(showPlan) PlanDialog(planEdit,newPlanIsInstallment,state,{showPlan=false}) {vm.savePlan(it);showPlan=false}
     if(showBudget) BudgetDialog(budgetEdit, state, {showBudget=false}) {vm.saveBudget(it);showBudget=false}
     if(showAdjustment) AdjustmentDialog(adjustmentEdit, state, {showAdjustment=false}) {vm.saveAdjustment(it);showAdjustment=false}
     delete?.let { (name, action) -> ConfirmDialog("删除$name？","删除后无法恢复。",{delete=null},{action();delete=null}) }
@@ -436,7 +502,7 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
                             if(balanceWasFocused && !focusState.isFocused) saveBalance()
                             balanceWasFocused=focusState.isFocused
                         },
-                        label={Text("真实余额")},
+                        label={Text("余额")},
                         singleLine=true,
                         keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Decimal,imeAction=ImeAction.Done),
                         keyboardActions=KeyboardActions(onDone={saveBalance();focusManager.clearFocus()})
@@ -562,8 +628,8 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
             Text("如有存款、基金等投资，建议用“未来临时收支”功能替代。",color=Color.Gray)
             Spacer(Modifier.height(8.dp))
             Text("开发者：尚宸鸣 | 使用 Codex 协助开发")
-            TextButton({uriHandler.openUri("https://github.com/7panni/cashflow-forecast")},contentPadding=PaddingValues(0.dp)) {
-                Text("项目地址：github.com/7panni/cashflow-forecast")
+            TextButton({uriHandler.openUri("https://github.com/7panni/show-me-the-money")},contentPadding=PaddingValues(0.dp)) {
+                Text("项目地址：github.com/7panni/show-me-the-money")
             }
             TextButton({uriHandler.openUri("https://7panni.com")},contentPadding=PaddingValues(0.dp)) {
                 Text("Blog：7panni.com")
@@ -574,83 +640,110 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
     if(confirmClear) ConfirmDialog("清空全部测试数据？","账户、计划、预算和修正都会删除。",{confirmClear=false},{vm.clearAll();confirmClear=false})
 }
 
+private enum class InstallmentInputMode { PER_PAYMENT, TOTAL }
+
 @Composable private fun PlanDialog(
     old: PlannedTransactionEntity?,
+    startAsInstallment:Boolean,
     state: CashFlowUiState,
     close:()->Unit,
-    dismissTips:()->Unit,
     save:(PlannedTransactionEntity)->Unit,
 ) {
+    val isInstallment=(old?.installmentTotal?.let{it>1})?:startAsInstallment
     var name by remember {mutableStateOf(old?.name?:"")}
     var amount by remember {mutableStateOf(old?.let{currencyDecimal(it.amountCents,it.currencyCode)}?:"")}
     var type by remember {mutableStateOf(old?.type?.takeIf{it in listOf(EntryType.INCOME,EntryType.EXPENSE)}?:EntryType.EXPENSE)}
-    var repeat by remember {mutableStateOf(old?.repeatRule?.takeIf{it in listOf(RepeatRule.WEEKLY,RepeatRule.MONTHLY,RepeatRule.QUARTERLY,RepeatRule.YEARLY)}?:RepeatRule.MONTHLY)}
+    var repeat by remember {mutableStateOf(old?.repeatRule?.takeIf{it in listOf(RepeatRule.WEEKLY,RepeatRule.MONTHLY,RepeatRule.QUARTERLY,RepeatRule.SEMIANNUAL,RepeatRule.YEARLY)}?:RepeatRule.MONTHLY)}
     var account by remember {mutableStateOf(old?.accountName?:state.accounts.firstOrNull()?.name.orEmpty())}
     var cryptoSymbol by remember {mutableStateOf(old?.currencyCode?.takeIf{it in listOf("USDT","BTC","LTC")} ?: "USDT")}
     var date by remember {mutableStateOf(old?.startDateEpochDay?.let(LocalDate::ofEpochDay)?:LocalDate.now().plusDays(1))}
     var hasEnd by remember {mutableStateOf(old?.endDateEpochDay != null)}
     var endDate by remember {mutableStateOf(old?.endDateEpochDay?.let(LocalDate::ofEpochDay)?:date.plusYears(1))}
-    var isInstallment by remember {mutableStateOf((old?.installmentTotal?:1)>1)}
-    var installmentTotal by remember {mutableStateOf((old?.installmentTotal?:1).toString())}
-    var installments by remember {mutableStateOf((old?.installmentRemaining?.takeIf{it>0}?:old?.installmentTotal?:1).toString())}
-    val initialInstallmentTotal=old?.let{
-        if(it.installmentTotalAmountCents>0)it.installmentTotalAmountCents else it.amountCents*it.installmentTotal.coerceAtLeast(1)
-    }
-    var installmentAmount by remember {mutableStateOf(initialInstallmentTotal?.let{currencyDecimal(it,old?.currencyCode?:"CNY")}?:"")}
-    EditDialog(if(old==null)"新增固定款项" else "编辑固定款项",close,{
-        val sourceAccount = state.accounts.firstOrNull { it.name == account }
-        val currency = if(sourceAccount?.currencyCode=="CRYPTO")cryptoSymbol else sourceAccount?.currencyCode?:"CNY"
-        val effectiveInstallment=type==EntryType.EXPENSE&&isInstallment
-        val periods=(installmentTotal.toIntOrNull()?:0)
-        val remaining=(installments.toIntOrNull()?:0)
-        val totalAmount=if(effectiveInstallment)parseCurrencyAmount(installmentAmount,currency) else null
-        val installmentValues=if(effectiveInstallment)installmentBreakdown(totalAmount?:return@EditDialog,periods) else null
-        if(effectiveInstallment&&(remaining !in 1..periods)) return@EditDialog
-        val cents=installmentValues?.first?:parseCurrencyAmount(amount,currency)?:return@EditDialog
-        save(PlannedTransactionEntity(old?.id?:0,name.ifBlank{if(effectiveInstallment)"分期" else if(type==EntryType.INCOME)"工资" else "房租"},type,cents,
-            currencyCode=currency,exchangeRateToCnyMicros=0,
-            accountName=account,toAccountName=null,startDateEpochDay=date.toEpochDay(),
-            repeatRule=repeat,endDateEpochDay=endDate.toEpochDay().takeIf { hasEnd&&!effectiveInstallment },
-            installmentTotal=if(effectiveInstallment)periods else 1,
-            installmentRemaining=if(effectiveInstallment)remaining else 0,
-            installmentTotalAmountCents=if(effectiveInstallment)totalAmount?:0 else 0,
-            isActive=old?.isActive?:true))
-    }) {
+    var installmentMode by remember {mutableStateOf(if(old==null)InstallmentInputMode.PER_PAYMENT else InstallmentInputMode.TOTAL)}
+    val oldPeriods=old?.installmentTotal?.coerceAtLeast(2)?:12
+    val oldRemaining=old?.installmentRemaining?.takeIf{it>0}?.coerceAtMost(oldPeriods)?:oldPeriods
+    var totalPeriods by remember {mutableStateOf(oldPeriods.toString())}
+    var paidPeriods by remember {mutableStateOf((oldPeriods-oldRemaining).toString())}
+    val oldGrandTotal=old?.let{if(it.installmentTotalAmountCents>0)it.installmentTotalAmountCents else it.amountCents*oldPeriods}
+    var perPayment by remember {mutableStateOf(old?.let{currencyDecimal(it.amountCents,it.currencyCode)}?:"")}
+    var grandTotal by remember {mutableStateOf(oldGrandTotal?.let{currencyDecimal(it,old?.currencyCode?:"CNY")}?:"")}
+    EditDialog(
+        if(old==null)if(isInstallment)"新增分期" else "新增固定款项" else if(isInstallment)"编辑分期" else "编辑固定款项",
+        close,
+        {
+            val sourceAccount=state.accounts.firstOrNull{it.name==account}?:return@EditDialog
+            val currency=if(sourceAccount.currencyCode=="CRYPTO")cryptoSymbol else sourceAccount.currencyCode
+            if(isInstallment) {
+                val periods=totalPeriods.toIntOrNull()?.takeIf{it>=2}?:return@EditDialog
+                val paid=paidPeriods.toIntOrNull()?.takeIf{it in 0 until periods}?:return@EditDialog
+                val values=when(installmentMode) {
+                    InstallmentInputMode.PER_PAYMENT -> {
+                        val each=parseCurrencyAmount(perPayment,currency)?.takeIf{it>0}?:return@EditDialog
+                        val total=runCatching{Math.multiplyExact(each,periods.toLong())}.getOrNull()?:return@EditDialog
+                        each to total
+                    }
+                    InstallmentInputMode.TOTAL -> {
+                        val total=parseCurrencyAmount(grandTotal,currency)?.takeIf{it>0}?:return@EditDialog
+                        val split=installmentBreakdown(total,periods)?:return@EditDialog
+                        split.first to total
+                    }
+                }
+                save(PlannedTransactionEntity(
+                    id=old?.id?:0,name=name.ifBlank{"分期"},type=EntryType.EXPENSE,
+                    amountCents=values.first,currencyCode=currency,exchangeRateToCnyMicros=0,
+                    accountName=account,startDateEpochDay=date.toEpochDay(),repeatRule=RepeatRule.MONTHLY,
+                    installmentTotal=periods,installmentRemaining=periods-paid,
+                    installmentTotalAmountCents=values.second,isActive=old?.isActive?:true,
+                ))
+            } else {
+                val cents=parseCurrencyAmount(amount,currency)?.takeIf{it>0}?:return@EditDialog
+                if(hasEnd&&endDate<date)return@EditDialog
+                save(PlannedTransactionEntity(
+                    id=old?.id?:0,name=name.ifBlank{if(type==EntryType.INCOME)"工资" else "房租"},type=type,
+                    amountCents=cents,currencyCode=currency,exchangeRateToCnyMicros=0,
+                    accountName=account,startDateEpochDay=date.toEpochDay(),repeatRule=repeat,
+                    endDateEpochDay=endDate.toEpochDay().takeIf{hasEnd},isActive=old?.isActive?:true,
+                ))
+            }
+        }
+    ) {
         TextFieldSimple(name,{name=it},"名称")
-        Text("类型"); ChoiceRow(listOf(EntryType.INCOME,EntryType.EXPENSE),type,{type=it}){entryLabel(it)}
-        Text("频率"); ChoiceRow(listOf(RepeatRule.WEEKLY,RepeatRule.MONTHLY,RepeatRule.QUARTERLY,RepeatRule.YEARLY),repeat,{repeat=it}){repeatLabel(it)}
-        AccountChoice("账户",state.accounts,account){account=it}
+        if(!isInstallment) {
+            Text("类型");ChoiceRow(listOf(EntryType.INCOME,EntryType.EXPENSE),type,{type=it}){entryLabel(it)}
+        }
+        AccountChoice(if(isInstallment)"扣款账户" else "账户",state.accounts,account){account=it}
         val selectedAccount=state.accounts.firstOrNull{it.name==account}
         if(selectedAccount?.currencyCode=="CRYPTO") {
-            Text("数字货币种类")
-            ChoiceRow(listOf("USDT","BTC","LTC"),cryptoSymbol,{cryptoSymbol=it}){if(it=="LTC")"ltc" else it}
+            Text("数字货币种类");ChoiceRow(listOf("USDT","BTC","LTC"),cryptoSymbol,{cryptoSymbol=it}){it}
         }
-        val displayCurrency=if(selectedAccount?.currencyCode=="CRYPTO")cryptoSymbol else selectedAccount?.currencyCode?:"CNY"
-        if(type==EntryType.EXPENSE) Row(verticalAlignment=Alignment.CenterVertically) {
-            Checkbox(isInstallment,{isInstallment=it;if(it)repeat=RepeatRule.MONTHLY})
-            Text("分期")
-        }
-        if(type==EntryType.EXPENSE&&isInstallment) {
-            MoneyField(installmentAmount,{installmentAmount=it},"分期总还款金额（${currencyLabel(displayCurrency)}）")
-            TextFieldSimple(installmentTotal,{installmentTotal=it},"总期数",KeyboardType.Number)
-            TextFieldSimple(installments,{installments=it},"剩余期数",KeyboardType.Number)
-            val previewTotal=parseCurrencyAmount(installmentAmount,displayCurrency)
-            val preview=previewTotal?.let{installmentBreakdown(it,installmentTotal.toIntOrNull()?:0)}
-            if(preview!=null) Text(
-                "每期 ${currencyMoney(preview.first,displayCurrency)}；最后一期 ${currencyMoney(preview.second,displayCurrency)}",
-                color=Green,style=MaterialTheme.typography.bodySmall
-            )
-            if(state.settings.showFinanceTips) FinanceTip(
-                "分期重点看总还款额，不只看每期金额。默认按无利息计算；如有利息或手续费，请填写实际总还款金额。",
-                dismissTips
-            )
+        val currency=if(selectedAccount?.currencyCode=="CRYPTO")cryptoSymbol else selectedAccount?.currencyCode?:"CNY"
+        if(isInstallment) {
+            Text("计算方式");ChoiceRow(InstallmentInputMode.entries,installmentMode,{installmentMode=it}){
+                if(it==InstallmentInputMode.PER_PAYMENT)"按每期金额" else "按总额"
+            }
+            if(installmentMode==InstallmentInputMode.PER_PAYMENT) MoneyField(perPayment,{perPayment=it},"每期金额（${currencyLabel(currency)}）")
+            else MoneyField(grandTotal,{grandTotal=it},"分期总额（${currencyLabel(currency)}）")
+            TextFieldSimple(totalPeriods,{totalPeriods=it},"总期数",KeyboardType.Number)
+            TextFieldSimple(paidPeriods,{paidPeriods=it},"已支付期数",KeyboardType.Number)
+            val periods=totalPeriods.toIntOrNull()?:0
+            val paid=paidPeriods.toIntOrNull()?:0
+            val remaining=(periods-paid).coerceAtLeast(0)
+            val preview=when(installmentMode) {
+                InstallmentInputMode.PER_PAYMENT -> parseCurrencyAmount(perPayment,currency)?.let{it to runCatching{Math.multiplyExact(it,remaining.toLong())}.getOrNull()}
+                InstallmentInputMode.TOTAL -> parseCurrencyAmount(grandTotal,currency)?.let{total->installmentBreakdown(total,periods)?.first?.let{each->each to (total-each*paid)}}
+            }
+            preview?.second?.let { remainingTotal ->
+                Text("每期 ${currencyMoney(preview.first,currency)} · 剩余 $remaining 期 · 剩余总额 ${currencyMoney(remainingTotal,currency)}",color=Green,fontWeight=FontWeight.SemiBold)
+            }
+            Text("当前按无息分期计算。若有利息或手续费，请选择“按总额”并填写实际总还款额。",color=Color.Gray,style=MaterialTheme.typography.bodySmall)
+            DateChoice("下次扣款日期",date){date=it}
         } else {
-            MoneyField(amount,{amount=it},"金额（${currencyLabel(displayCurrency)}）")
-        }
-        DateChoice("开始日期",date){date=it}
-        if(!isInstallment) {
+            MoneyField(amount,{amount=it},"每次金额（${currencyLabel(currency)}）")
+            Text("频率");ChoiceRow(listOf(RepeatRule.WEEKLY,RepeatRule.MONTHLY,RepeatRule.QUARTERLY,RepeatRule.SEMIANNUAL,RepeatRule.YEARLY),repeat,{repeat=it}){repeatLabel(it)}
+            DateChoice("开始日期",date){date=it}
             Row(verticalAlignment=Alignment.CenterVertically){Checkbox(hasEnd,{hasEnd=it});Text("设置结束日期")}
-            if(hasEnd) DateChoice("结束日期",endDate){endDate=it}
+            if(hasEnd)DateChoice("结束日期",endDate){endDate=it}
+            Text("固定款项只按每次金额影响预测，不计算、也不显示总剩余。",color=Color.Gray,style=MaterialTheme.typography.bodySmall)
         }
     }
 }
@@ -1066,7 +1159,7 @@ internal fun parseAccountIdCsv(csv:String):Set<Long> = csv.split(',').mapNotNull
 internal fun parseCurrencyCodeCsv(csv:String):Set<String> = csv.split(',').map{it.trim().uppercase()}.filter{it.isNotBlank()}.toSet()
 private fun monthDay(date:LocalDate)="${date.monthValue}/${date.dayOfMonth}"
 private fun entryLabel(t:EntryType)=when(t){EntryType.INCOME->"收入";EntryType.EXPENSE->"支出";EntryType.TRANSFER->"转账";EntryType.DEBT->"负债";EntryType.REFUND->"退款"}
-private fun repeatLabel(r:RepeatRule)=when(r){RepeatRule.NONE->"一次";RepeatRule.DAILY->"每天";RepeatRule.WEEKLY->"每周";RepeatRule.MONTHLY->"每月";RepeatRule.QUARTERLY->"每季度";RepeatRule.YEARLY->"每年"}
+private fun repeatLabel(r:RepeatRule)=when(r){RepeatRule.NONE->"一次";RepeatRule.DAILY->"每天";RepeatRule.WEEKLY->"每周";RepeatRule.MONTHLY->"每月";RepeatRule.QUARTERLY->"每季度";RepeatRule.SEMIANNUAL->"每半年";RepeatRule.YEARLY->"每年"}
 private fun accountTypeLabel(t:AccountType)=when(t){AccountType.CASH->"现金";AccountType.WECHAT->"微信";AccountType.ALIPAY->"支付宝";AccountType.CMB->"银行";AccountType.PAYPAL->"PayPal";AccountType.CRYPTO->"数字货币";AccountType.CUSTOM->"自定义"}
 private fun currencyLabel(code:String)=when(code.uppercase()){
     "CNY"->"人民币";"USD"->"美元";"EUR"->"欧元";"GBP"->"英镑";"JPY"->"日元";"HKD"->"港币"

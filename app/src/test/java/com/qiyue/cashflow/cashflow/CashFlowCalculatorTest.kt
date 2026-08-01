@@ -14,13 +14,24 @@ class CashFlowCalculatorTest {
         PlannedTransactionEntity(name=name,type=type,amountCents=amount,accountName="A",toAccountName=to,
             startDateEpochDay=start.toEpochDay(),repeatRule=repeat,installmentRemaining=remaining)
 
-    @Test fun monthlyQuarterlyYearlyClampToMonthEnd() {
+    @Test fun monthlyQuarterlySemiannualYearlyClampToMonthEnd() {
         val monthly=plan("月",EntryType.EXPENSE,1,today,RepeatRule.MONTHLY)
         assertTrue(calculator.occursOn(monthly,LocalDate.of(2026,2,28)))
         val quarterly=plan("季",EntryType.EXPENSE,1,today,RepeatRule.QUARTERLY)
         assertTrue(calculator.occursOn(quarterly,LocalDate.of(2026,4,30)))
+        val semiannual=plan("半年",EntryType.EXPENSE,1,today,RepeatRule.SEMIANNUAL)
+        assertTrue(calculator.occursOn(semiannual,LocalDate.of(2026,7,31)))
+        assertFalse(calculator.occursOn(semiannual,LocalDate.of(2026,6,30)))
         val yearly=plan("年",EntryType.EXPENSE,1,today,RepeatRule.YEARLY)
         assertTrue(calculator.occursOn(yearly,LocalDate.of(2027,1,31)))
+    }
+
+    @Test fun recurringRentUsesPaymentAmountWithoutInstallmentTotal() {
+        val rent=plan("房租",EntryType.EXPENSE,200_000,today,RepeatRule.MONTHLY).copy(
+            endDateEpochDay=LocalDate.of(2026,3,31).toEpochDay()
+        )
+        val result=calculator.forecast(listOf(account("A",1_000_000)),listOf(rent),emptyList(),emptyList(),today,120)
+        assertEquals(400_000,result.endBalanceCents)
     }
 
     @Test fun weeklyUsesSameWeekdayAndInstallmentsStop() {

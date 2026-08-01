@@ -30,10 +30,13 @@ class ForecastEngineTest {
     @Test fun weeklyQuarterlyYearlyAndInstallmentsUseCorrectDates() {
         val weekly = CorePlan("周", CoreEntryType.EXPENSE, 1, "CNY", "A", startEpochDay=today, repeatRule=CoreRepeatRule.WEEKLY)
         val quarterly = CorePlan("季", CoreEntryType.EXPENSE, 1, "CNY", "A", startEpochDay=today, repeatRule=CoreRepeatRule.QUARTERLY)
+        val semiannual = CorePlan("半年", CoreEntryType.EXPENSE, 1, "CNY", "A", startEpochDay=today, repeatRule=CoreRepeatRule.SEMIANNUAL)
         val yearly = CorePlan("年", CoreEntryType.EXPENSE, 1, "CNY", "A", startEpochDay=today, repeatRule=CoreRepeatRule.YEARLY)
         val installment = CorePlan("分期", CoreEntryType.EXPENSE, 1, "CNY", "A", startEpochDay=today, repeatRule=CoreRepeatRule.MONTHLY, installmentTotal=2, installmentRemaining=2)
         assertTrue(engine.occursOn(weekly, CivilDate(2026, 2, 7).toEpochDay()))
         assertTrue(engine.occursOn(quarterly, CivilDate(2026, 4, 30).toEpochDay()))
+        assertTrue(engine.occursOn(semiannual, CivilDate(2026, 7, 31).toEpochDay()))
+        assertFalse(engine.occursOn(semiannual, CivilDate(2026, 6, 30).toEpochDay()))
         assertTrue(engine.occursOn(yearly, CivilDate(2027, 1, 31).toEpochDay()))
         assertTrue(engine.occursOn(installment, CivilDate(2026, 2, 28).toEpochDay()))
         assertFalse(engine.occursOn(installment, CivilDate(2026, 3, 31).toEpochDay()))

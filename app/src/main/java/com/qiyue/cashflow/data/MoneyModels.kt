@@ -123,5 +123,8 @@ data class AppSettingsEntity(
     val showPaypalOnAccounts: Boolean = true,
     val showAlipayOnAccounts: Boolean = true,
     val showCryptoOnAccounts: Boolean = true,
+    val appMode: String = "SIMPLE",
+    val customModulesCsv: String = "",
+    val onboardingCompleted: Boolean = false,
     val seeded: Boolean = false
 )

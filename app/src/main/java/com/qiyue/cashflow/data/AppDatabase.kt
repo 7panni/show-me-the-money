@@ -13,8 +13,8 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         PlannedTransactionEntity::class, BudgetEntity::class,
         AdjustmentEntity::class, CryptoHoldingEntity::class, AppSettingsEntity::class
     ],
-    version = 5,
-    exportSchema = false
+    version = 6,
+    exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun transactionDao(): TransactionDao
@@ -26,7 +26,13 @@ abstract class AppDatabase : RoomDatabase() {
                 context.applicationContext,
                 AppDatabase::class.java,
                 "cashflow_forecast.db"
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).build().also { instance = it }
+            ).addMigrations(
+                MIGRATION_1_2,
+                MIGRATION_2_3,
+                MIGRATION_3_4,
+                MIGRATION_4_5,
+                MIGRATION_5_6,
+            ).build().also { instance = it }
         }
 
         private val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -60,6 +66,16 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE AppSettingsEntity ADD COLUMN showPaypalOnAccounts INTEGER NOT NULL DEFAULT 1")
                 db.execSQL("ALTER TABLE AppSettingsEntity ADD COLUMN showAlipayOnAccounts INTEGER NOT NULL DEFAULT 1")
                 db.execSQL("ALTER TABLE AppSettingsEntity ADD COLUMN showCryptoOnAccounts INTEGER NOT NULL DEFAULT 1")
+            }
+        }
+
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // 旧版本已经提供全部功能，因此迁移后保持完整模式，避免界面功能突然消失。
+                db.execSQL("ALTER TABLE AppSettingsEntity ADD COLUMN appMode TEXT NOT NULL DEFAULT 'FULL'")
+                db.execSQL("ALTER TABLE AppSettingsEntity ADD COLUMN customModulesCsv TEXT NOT NULL DEFAULT ''")
+                // 已有用户直接进入应用；只有全新安装才显示首次启动选择。
+                db.execSQL("ALTER TABLE AppSettingsEntity ADD COLUMN onboardingCompleted INTEGER NOT NULL DEFAULT 1")
             }
         }
     }

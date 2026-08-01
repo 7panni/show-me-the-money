@@ -3,6 +3,7 @@ package com.qiyue.cashflow.data
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.json.JSONObject
 import java.time.LocalDate
 
 class BackupJsonTest {
@@ -37,6 +38,9 @@ class BackupJsonTest {
                 showPaypalOnAccounts = false,
                 showAlipayOnAccounts = false,
                 showCryptoOnAccounts = false,
+                appMode = "CUSTOM",
+                customModulesCsv = "BUDGET,TRANSFER",
+                onboardingCompleted = true,
                 seeded = true
             ),
             holdings = listOf(
@@ -56,5 +60,22 @@ class BackupJsonTest {
         assertEquals(source.adjustments, restored.adjustments)
         assertEquals(source.settings, restored.settings)
         assertEquals(source.holdings, restored.holdings)
+    }
+
+    @Test fun oldBackupWithoutModeStillRestores() {
+        val source = ForecastBackup(
+            accounts = emptyList(), plans = emptyList(), budgets = emptyList(), adjustments = emptyList(),
+            settings = AppSettingsEntity(onboardingCompleted = true, seeded = true),
+        )
+        val legacy = JSONObject(BackupJson.encode(source)).apply {
+            getJSONObject("settings").apply {
+                remove("appMode")
+                remove("customModules")
+                remove("onboardingCompleted")
+            }
+        }.toString()
+        val restored = BackupJson.decode(legacy)
+        assertEquals("SIMPLE", restored.settings.appMode)
+        assertTrue(restored.settings.onboardingCompleted)
     }
 }

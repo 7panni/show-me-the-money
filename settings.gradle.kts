@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "QiCashFlow"
 include(":app")
+include(":shared")

@@ -1,5 +1,6 @@
 package com.qiyue.cashflow.ui
 
+import com.qiyue.cashflow.BuildConfig
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -30,6 +31,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.qiyue.cashflow.cashflow.CashFlowDay
 import com.qiyue.cashflow.data.*
+import com.qiyue.cashflow.shared.AppMode
+import com.qiyue.cashflow.shared.AppProfile
+import com.qiyue.cashflow.shared.FeatureModule
 import kotlinx.coroutines.launch
 import java.math.RoundingMode
 import java.time.LocalDate
@@ -48,6 +52,9 @@ private enum class Tab(val title: String, val icon: String) {
 @Composable
 fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
     val state by vm.uiState.collectAsState()
+    val profile = remember(state.settings.appMode, state.settings.customModulesCsv) {
+        AppProfile.parse(state.settings.appMode, state.settings.customModulesCsv)
+    }
     var tab by remember { mutableStateOf(Tab.HOME) }
     MaterialTheme(colorScheme = lightColorScheme(primary = Green, error = Red, surface = Color.White)) {
         Scaffold(
@@ -67,9 +74,90 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
         ) { pad ->
             when (tab) {
                 Tab.HOME -> HomePage(state, pad, vm::setHorizon)
-                Tab.PLAN -> PlanPage(state, pad, vm)
-                Tab.ACCOUNT -> AccountPage(state, pad, vm)
+                Tab.PLAN -> PlanPage(state, profile, pad, vm)
+                Tab.ACCOUNT -> AccountPage(state, profile, pad, vm)
                 Tab.SETTINGS -> SettingsPage(state, pad, vm)
+            }
+        }
+        if (state.isReady && !state.settings.onboardingCompleted) {
+            OnboardingDialog(vm::completeOnboarding)
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable private fun OnboardingDialog(
+    complete: (AppMode, Set<FeatureModule>, Set<AccountType>, Boolean) -> Unit,
+) {
+    var mode by remember { mutableStateOf(AppMode.SIMPLE) }
+    var modules by remember { mutableStateOf(AppProfile.SIMPLE_MODULES) }
+    var accounts by remember {
+        mutableStateOf(setOf(AccountType.CMB, AccountType.WECHAT, AccountType.ALIPAY, AccountType.CASH))
+    }
+    var examples by remember { mutableStateOf(true) }
+    val accountOptions = listOf(
+        AccountType.CMB, AccountType.WECHAT, AccountType.ALIPAY,
+        AccountType.CASH, AccountType.PAYPAL, AccountType.CRYPTO,
+    )
+    BasicAlertDialog(onDismissRequest = {}) {
+        Card(Modifier.fillMaxWidth().padding(12.dp)) {
+            Column(
+                Modifier.padding(18.dp).heightIn(max = 700.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text("欢迎使用", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                Text("先选一种用法，以后可在设置中更改；切换不会删除数据。", color = Color.Gray)
+                Text("使用模式", fontWeight = FontWeight.Bold)
+                ChoiceRow(AppMode.entries, mode, { selected ->
+                    mode = selected
+                    when (selected) {
+                        AppMode.SIMPLE -> {
+                            modules = AppProfile.SIMPLE_MODULES
+                            accounts = setOf(AccountType.CMB, AccountType.WECHAT, AccountType.ALIPAY, AccountType.CASH)
+                        }
+                        AppMode.CUSTOM -> modules = AppProfile.SIMPLE_MODULES
+                        AppMode.FULL -> {
+                            modules = FeatureModule.entries.toSet()
+                            accounts = setOf(
+                                AccountType.CMB, AccountType.WECHAT, AccountType.ALIPAY,
+                                AccountType.CASH, AccountType.PAYPAL, AccountType.CRYPTO,
+                            )
+                        }
+                    }
+                }, ::modeLabel)
+                Text(modeDescription(mode), color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+                if (mode == AppMode.CUSTOM) {
+                    Text("需要的功能", fontWeight = FontWeight.Bold)
+                    FeatureModule.entries.forEach { module ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(module in modules, { checked ->
+                                modules = if (checked) modules + module else modules - module
+                            })
+                            Text(featureLabel(module))
+                        }
+                    }
+                }
+                Text("初始账户", fontWeight = FontWeight.Bold)
+                accountOptions.forEach { type ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(type in accounts, { checked ->
+                            accounts = if (checked) accounts + type else accounts - type
+                            if (checked && type == AccountType.PAYPAL) modules = modules + FeatureModule.PAYPAL_USD
+                            if (checked && type == AccountType.CRYPTO) modules = modules + FeatureModule.CRYPTO
+                        })
+                        Text(accountTypeLabel(type))
+                    }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(examples, { examples = it })
+                    Text("加入虚构示例，方便立即查看预测")
+                }
+                Text("示例会标明“示例”，不含任何人的真实资料，并可在设置中一键清空。", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+                Button(
+                    onClick = { complete(mode, modules, accounts, examples) },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = accounts.isNotEmpty(),
+                ) { Text("开始使用") }
             }
         }
     }
@@ -222,7 +310,7 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
     }
 }
 
-@Composable private fun PlanPage(state: CashFlowUiState, pad: PaddingValues, vm: CashFlowViewModel) {
+@Composable private fun PlanPage(state: CashFlowUiState, profile: AppProfile, pad: PaddingValues, vm: CashFlowViewModel) {
     var planEdit by remember { mutableStateOf<PlannedTransactionEntity?>(null) }
     var showPlan by remember { mutableStateOf(false) }
     var budgetEdit by remember { mutableStateOf<BudgetEntity?>(null) }
@@ -234,28 +322,35 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
     LazyColumn(Modifier.fillMaxSize().padding(pad), contentPadding=PaddingValues(16.dp), verticalArrangement=Arrangement.spacedBy(10.dp)) {
         item { Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement=Arrangement.spacedBy(8.dp)) {
             Button({planEdit=null;showPlan=true}){Text("＋ 固定款项")}
-            OutlinedButton({adjustmentEdit=null;showAdjustment=true}){Text("＋ 未来临时收支")}
+            if (profile.isEnabled(FeatureModule.TEMPORARY_CASHFLOW)) {
+                OutlinedButton({adjustmentEdit=null;showAdjustment=true}){Text("＋ 未来临时收支")}
+            }
         }}
-        item { Section("固定收入、支出、转账与分期") }
-        if(state.plans.isEmpty()) item { EmptyCard("还没有固定款项。先添加工资、房租或分期。") }
+        item { Section(if (profile.mode == AppMode.SIMPLE) "固定收入与支出" else "固定收入、支出、转账与分期") }
+        if(state.plans.isEmpty()) item { EmptyCard("还没有固定款项。先添加工资或房租。") }
         items(state.plans, key={"plan-${it.id}"}) { p -> DataCard(
             title=p.name, subtitle="${entryLabel(p.type)} · ${repeatLabel(p.repeatRule)} · ${p.accountName}${p.toAccountName?.let{" → $it"}.orEmpty()}",
             amount=currencyMoney(p.amountCents,p.currencyCode), active=p.isActive,
             onToggle={vm.savePlan(p.copy(isActive=!p.isActive))}, onEdit={planEdit=p;showPlan=true},
             onDelete={delete="“${p.name}”" to {vm.deletePlan(p.id)}}
         )}
-        item { Section("预算") }
-        if(state.budgets.isEmpty()) item { EmptyCard("暂无预算。预算会作为未来支出进入预测。") }
-        items(state.budgets.take(1), key={"budget-${it.id}"}) { b -> DataCard(
+        if (profile.isEnabled(FeatureModule.BUDGET)) item { Section("预算") }
+        if(profile.isEnabled(FeatureModule.BUDGET) && state.budgets.isEmpty()) item {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                EmptyCard("暂无预算。预算会作为未来支出进入预测。")
+                OutlinedButton({budgetEdit=null;showBudget=true}, Modifier.fillMaxWidth()){Text("设置预算")}
+            }
+        }
+        if (profile.isEnabled(FeatureModule.BUDGET)) items(state.budgets.take(1), key={"budget-${it.id}"}) { b -> DataCard(
             b.name,
             "${LocalDate.ofEpochDay(b.startDateEpochDay)} 至 ${LocalDate.ofEpochDay(b.endDateEpochDay)} · 用于未来现金预测",
             "剩余 ${money(b.remainingCents)}",
             b.isActive, {vm.saveBudget(b.copy(isActive=!b.isActive))}, {budgetEdit=b;showBudget=true},
             {delete="“${b.name}”" to {vm.deleteBudget(b.id)}})
         }
-        item { Section("未来临时收支") }
-        if(temporaryAdjustments.isEmpty()) item { EmptyCard("暂无未来临时收支。实际余额有偏差时，到“账户”校准即可。") }
-        items(temporaryAdjustments, key={"adjustment-${it.id}"}) { a -> DataCard(
+        if (profile.isEnabled(FeatureModule.TEMPORARY_CASHFLOW)) item { Section("未来临时收支") }
+        if(profile.isEnabled(FeatureModule.TEMPORARY_CASHFLOW) && temporaryAdjustments.isEmpty()) item { EmptyCard("暂无未来临时收支。实际余额有偏差时，到“账户”校准即可。") }
+        if (profile.isEnabled(FeatureModule.TEMPORARY_CASHFLOW)) items(temporaryAdjustments, key={"adjustment-${it.id}"}) { a -> DataCard(
             a.name, buildString {
                 append(if(a.isIncome)"临时收入" else "临时支出")
                 append(" · ${LocalDate.ofEpochDay(a.dateEpochDay)}")
@@ -270,13 +365,13 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
             ) "计入真实余额" to {vm.applyAdjustmentToBalance(a)} else null)
         }
     }
-    if(showPlan) PlanDialog(planEdit, state, {showPlan=false}) {vm.savePlan(it);showPlan=false}
+    if(showPlan) PlanDialog(planEdit, state, profile, {showPlan=false}) {vm.savePlan(it);showPlan=false}
     if(showBudget) BudgetDialog(budgetEdit, state, {showBudget=false}) {vm.saveBudget(it);showBudget=false}
     if(showAdjustment) AdjustmentDialog(adjustmentEdit, state, {showAdjustment=false}) {vm.saveAdjustment(it);showAdjustment=false}
     delete?.let { (name, action) -> ConfirmDialog("删除$name？","删除后无法恢复。",{delete=null},{action();delete=null}) }
 }
 
-@Composable private fun AccountPage(state: CashFlowUiState, pad: PaddingValues, vm: CashFlowViewModel) {
+@Composable private fun AccountPage(state: CashFlowUiState, profile: AppProfile, pad: PaddingValues, vm: CashFlowViewModel) {
     var editing by remember { mutableStateOf<AccountEntity?>(null) }
     var showEditor by remember { mutableStateOf(false) }
     var showCryptoEditor by remember { mutableStateOf(false) }
@@ -313,15 +408,16 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
                             value=balanceText,
                             onValueChange={balanceText=it},
                             modifier=Modifier.weight(1f),
-                            label={Text("真实余额（${if(a.currencyCode=="USD")"\$" else "¥"}）")},
+                            label={Text("真实余额（可加减）")},
                             singleLine=true,
                             keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Decimal)
                         )
                         Button(
-                            onClick={parseCents(balanceText)?.let{vm.calibrate(a,it)}},
-                            enabled=parseCents(balanceText)!=null
+                            onClick={parseCentsExpression(balanceText)?.let{vm.calibrate(a,it)}},
+                            enabled=parseCentsExpression(balanceText)!=null
                         ){Text("校准")}
                     }
+                    Text("可输入新余额，或像 1000+50-20 这样快速计算。", color=Color.Gray, style=MaterialTheme.typography.bodySmall)
                     Text("未来${state.horizonDays}天预计余额 ${nativeMoney(endNative,a.currencyCode)}", color=Green)
                 }
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement=Arrangement.spacedBy(6.dp)) {
@@ -331,7 +427,7 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
             }}
         }
     }
-    if(showEditor) AccountDialog(editing,{showEditor=false}){vm.saveAccount(it);showEditor=false}
+    if(showEditor) AccountDialog(editing,profile,{showEditor=false}){vm.saveAccount(it);showEditor=false}
     if(showCryptoEditor) CryptoHoldingsDialog(state.cryptoHoldings,{showCryptoEditor=false}) {
         vm.saveCryptoHoldings(it);showCryptoEditor=false
     }
@@ -346,6 +442,12 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
     var showPaypalAccount by remember(state.settings.showPaypalOnAccounts) { mutableStateOf(state.settings.showPaypalOnAccounts) }
     var showAlipayAccount by remember(state.settings.showAlipayOnAccounts) { mutableStateOf(state.settings.showAlipayOnAccounts) }
     var showCryptoAccount by remember(state.settings.showCryptoOnAccounts) { mutableStateOf(state.settings.showCryptoOnAccounts) }
+    var mode by remember(state.settings.appMode) {
+        mutableStateOf(AppProfile.parse(state.settings.appMode, state.settings.customModulesCsv).mode)
+    }
+    var customModules by remember(state.settings.appMode, state.settings.customModulesCsv) {
+        mutableStateOf(AppProfile.parse(state.settings.appMode, state.settings.customModulesCsv).customModules)
+    }
     var confirmClear by remember { mutableStateOf(false) }
     val context = androidx.compose.ui.platform.LocalContext.current
     val create = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri: Uri? ->
@@ -355,6 +457,22 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
         uri?.let { runCatching { context.contentResolver.openInputStream(it)?.bufferedReader()?.use { r -> r.readText() } }.getOrNull()?.let(vm::restoreJson) }
     }
     LazyColumn(Modifier.fillMaxSize().padding(pad), contentPadding=PaddingValues(16.dp), verticalArrangement=Arrangement.spacedBy(12.dp)) {
+        item { Card { Column(Modifier.padding(16.dp), verticalArrangement=Arrangement.spacedBy(10.dp)) {
+            Section("使用模式")
+            ChoiceRow(AppMode.entries, mode, { mode = it }, ::modeLabel)
+            Text(modeDescription(mode), color=Color.Gray, style=MaterialTheme.typography.bodySmall)
+            if (mode == AppMode.CUSTOM) {
+                FeatureModule.entries.forEach { module ->
+                    Row(verticalAlignment=Alignment.CenterVertically) {
+                        Checkbox(module in customModules, { checked ->
+                            customModules = if (checked) customModules + module else customModules - module
+                        })
+                        Text(featureLabel(module))
+                    }
+                }
+            }
+            Text("切换模式只调整界面，不会删除已有账户或计划。", color=Color.Gray, style=MaterialTheme.typography.bodySmall)
+        }}}
         item { Card { Column(Modifier.padding(16.dp), verticalArrangement=Arrangement.spacedBy(12.dp)) {
             Section("预测设置")
             Text("默认预测周期")
@@ -370,7 +488,10 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
             Row(verticalAlignment=Alignment.CenterVertically){Checkbox(showAlipayAccount,{showAlipayAccount=it});Text("显示支付宝")}
             Row(verticalAlignment=Alignment.CenterVertically){Checkbox(showCryptoAccount,{showCryptoAccount=it});Text("显示数字货币")}
             Text("这里只控制账户页是否显示，不影响余额和预测。",color=Color.Gray,style=MaterialTheme.typography.bodySmall)
-            Button({vm.updateSettings(days,budgetStartDay.toIntOrNull()?:21,showUsd,showCrypto,showPaypalAccount,showAlipayAccount,showCryptoAccount)},Modifier.fillMaxWidth()){Text("保存设置")}
+            Button({vm.updateSettings(
+                days,budgetStartDay.toIntOrNull()?:21,showUsd,showCrypto,
+                showPaypalAccount,showAlipayAccount,showCryptoAccount,mode,customModules
+            )},Modifier.fillMaxWidth()){Text("保存全部设置")}
         }}}
         item { Card { Column(Modifier.padding(16.dp), verticalArrangement=Arrangement.spacedBy(10.dp)) {
             Section("本地数据")
@@ -380,7 +501,7 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
             Text("所有数据只保存在本机；恢复会替换测试版当前数据。",color=Color.Gray,style=MaterialTheme.typography.bodySmall)
         }}}
         item { Card { Column(Modifier.padding(16.dp)) {
-            Section("版本信息"); Text("简易现金流计算-测试版 0.6.6")
+            Section("版本信息"); Text("简易现金流计算-测试版 ${BuildConfig.VERSION_NAME.removeSuffix("-test")}")
             Text("开发者：7panni",color=Color.Gray)
             Text("独立安装 · 本地 Room 数据库",color=Color.Gray)
         }}}
@@ -388,7 +509,7 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
     if(confirmClear) ConfirmDialog("清空全部测试数据？","账户、计划、预算和修正都会删除。",{confirmClear=false},{vm.clearAll();confirmClear=false})
 }
 
-@Composable private fun PlanDialog(old: PlannedTransactionEntity?, state: CashFlowUiState, close:()->Unit, save:(PlannedTransactionEntity)->Unit) {
+@Composable private fun PlanDialog(old: PlannedTransactionEntity?, state: CashFlowUiState, profile: AppProfile, close:()->Unit, save:(PlannedTransactionEntity)->Unit) {
     var name by remember {mutableStateOf(old?.name?:"")}
     var amount by remember {mutableStateOf(old?.let{currencyDecimal(it.amountCents,it.currencyCode)}?:"")}
     var type by remember {mutableStateOf(old?.type?:EntryType.EXPENSE)}
@@ -413,7 +534,11 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
             installmentRemaining=(installments.toIntOrNull()?:0).coerceAtLeast(0),isActive=old?.isActive?:true))
     }) {
         TextFieldSimple(name,{name=it},"名称")
-        Text("类型"); ChoiceRow(listOf(EntryType.INCOME,EntryType.EXPENSE,EntryType.TRANSFER),type,{type=it}){entryLabel(it)}
+        val typeOptions = buildList {
+            add(EntryType.INCOME); add(EntryType.EXPENSE)
+            if (profile.isEnabled(FeatureModule.TRANSFER) || old?.type == EntryType.TRANSFER) add(EntryType.TRANSFER)
+        }
+        Text("类型"); ChoiceRow(typeOptions,type,{type=it}){entryLabel(it)}
         Text("频率"); ChoiceRow(listOf(RepeatRule.NONE,RepeatRule.WEEKLY,RepeatRule.MONTHLY,RepeatRule.QUARTERLY,RepeatRule.YEARLY),repeat,{repeat=it}){repeatLabel(it)}
         AccountChoice("账户",state.accounts,account){account=it}
         val selectedAccount=state.accounts.firstOrNull{it.name==account}
@@ -427,7 +552,7 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
         DateChoice("开始日期",date){date=it}
         Row(verticalAlignment=Alignment.CenterVertically){Checkbox(hasEnd,{hasEnd=it});Text("设置结束日期")}
         if(hasEnd) DateChoice("结束日期",endDate){endDate=it}
-        if(type==EntryType.EXPENSE) {
+        if(type==EntryType.EXPENSE && (profile.isEnabled(FeatureModule.INSTALLMENT) || (old?.installmentTotal ?: 1) > 1)) {
             TextFieldSimple(installmentTotal,{installmentTotal=it},"总期数（1 表示非分期）",KeyboardType.Number)
             TextFieldSimple(installments,{installments=it},"剩余期数（0 表示按结束日期）",KeyboardType.Number)
         }
@@ -486,7 +611,7 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
     }
 }
 
-@Composable private fun AccountDialog(old:AccountEntity?,close:()->Unit,save:(AccountEntity)->Unit) {
+@Composable private fun AccountDialog(old:AccountEntity?,profile:AppProfile,close:()->Unit,save:(AccountEntity)->Unit) {
     var name by remember{mutableStateOf(old?.name?:"")}
     var balance by remember{mutableStateOf("")}
     var currency by remember{mutableStateOf(old?.currencyCode?:"CNY")}
@@ -513,10 +638,17 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
         TextFieldSimple(name,{name=it},"账户名称")
         if(old==null) {
             Text("账户类型")
-            ChoiceRow(AccountType.entries,type,{type=it}){accountTypeLabel(it)}
+            val allowedTypes = buildList {
+                add(AccountType.CASH); add(AccountType.WECHAT); add(AccountType.ALIPAY); add(AccountType.CMB)
+                if (profile.isEnabled(FeatureModule.PAYPAL_USD)) add(AccountType.PAYPAL)
+                if (profile.isEnabled(FeatureModule.CRYPTO)) add(AccountType.CRYPTO)
+                add(AccountType.CUSTOM)
+            }
+            ChoiceRow(allowedTypes,type,{type=it}){accountTypeLabel(it)}
             if(type==AccountType.CUSTOM) {
                 Text("币种")
-                ChoiceRow(listOf("CNY","USD"),currency,{currency=it}){currencyLabel(it)}
+                val currencies = if (profile.isEnabled(FeatureModule.PAYPAL_USD)) listOf("CNY","USD") else listOf("CNY")
+                ChoiceRow(currencies,currency,{currency=it}){currencyLabel(it)}
             }
             if(type!=AccountType.CRYPTO) {
                 val unit = if(type==AccountType.PAYPAL || (type==AccountType.CUSTOM && currency=="USD")) "美元" else "人民币"
@@ -613,6 +745,27 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
 @Composable private fun EmptyCard(text:String)=Card{Text(text,Modifier.padding(16.dp),color=Color.Gray)}
 
 private fun parseCents(text:String):Long?=text.trim().toBigDecimalOrNull()?.movePointRight(2)?.setScale(0,RoundingMode.HALF_UP)?.longValueExact()
+internal fun parseCentsExpression(text:String):Long? {
+    val input = text.filterNot(Char::isWhitespace)
+    if (input.isEmpty()) return null
+    var index = 0
+    var total = java.math.BigDecimal.ZERO
+    while (index < input.length) {
+        var sign = 1
+        if (input[index] == '+' || input[index] == '-') {
+            if (input[index] == '-') sign = -1
+            index++
+        } else if (index > 0) return null
+        val start = index
+        while (index < input.length && (input[index].isDigit() || input[index] == '.')) index++
+        if (start == index) return null
+        val number = input.substring(start, index).toBigDecimalOrNull() ?: return null
+        total = if (sign > 0) total + number else total - number
+    }
+    return runCatching {
+        total.movePointRight(2).setScale(0,RoundingMode.HALF_UP).longValueExact()
+    }.getOrNull()
+}
 private fun parseCryptoUnits(text:String):Long?=text.trim().toBigDecimalOrNull()?.movePointRight(8)?.setScale(0,RoundingMode.HALF_UP)?.longValueExact()
 private fun parseCurrencyAmount(text:String,currency:String):Long?=if(currency in listOf("USDT","BTC","LTC"))parseCryptoUnits(text) else parseCents(text)
 private fun decimal(cents:Long)="${cents/100}.${(cents.absoluteValue%100).toString().padStart(2,'0')}"
@@ -632,3 +785,17 @@ private fun entryLabel(t:EntryType)=when(t){EntryType.INCOME->"收入";EntryType
 private fun repeatLabel(r:RepeatRule)=when(r){RepeatRule.NONE->"一次";RepeatRule.DAILY->"每天";RepeatRule.WEEKLY->"每周";RepeatRule.MONTHLY->"每月";RepeatRule.QUARTERLY->"每季度";RepeatRule.YEARLY->"每年"}
 private fun accountTypeLabel(t:AccountType)=when(t){AccountType.CASH->"现金";AccountType.WECHAT->"微信";AccountType.ALIPAY->"支付宝";AccountType.CMB->"银行";AccountType.PAYPAL->"PayPal";AccountType.CRYPTO->"数字货币";AccountType.CUSTOM->"自定义"}
 private fun currencyLabel(code:String)=when(code){"CNY"->"人民币";"USD"->"美元";"LTC"->"ltc";"CRYPTO"->"数字货币";else->code}
+private fun modeLabel(mode:AppMode)=when(mode){AppMode.SIMPLE->"极简";AppMode.CUSTOM->"定制";AppMode.FULL->"完整"}
+private fun modeDescription(mode:AppMode)=when(mode){
+    AppMode.SIMPLE->"账户、固定收支、统一预算和预测，适合只想看现金流。"
+    AppMode.CUSTOM->"只显示你选择的功能；账户仍可随时增减。"
+    AppMode.FULL->"开放预算、临时收支、转账、分期、美元和数字货币。"
+}
+private fun featureLabel(module:FeatureModule)=when(module){
+    FeatureModule.BUDGET->"预算"
+    FeatureModule.TEMPORARY_CASHFLOW->"未来临时收支"
+    FeatureModule.TRANSFER->"账户间转账"
+    FeatureModule.INSTALLMENT->"分期付款"
+    FeatureModule.PAYPAL_USD->"PayPal 与美元账户"
+    FeatureModule.CRYPTO->"数字货币"
+}

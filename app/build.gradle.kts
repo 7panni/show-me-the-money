@@ -13,12 +13,27 @@ android {
         applicationId = "com.qiyue.cashflow.forecast"
         minSdk = 26
         targetSdk = 35
-        versionCode = 13
-        versionName = "0.6.6-test"
+        versionCode = 14
+        versionName = "0.7.0-test"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildFeatures {
         compose = true
+        buildConfig = true
+    }
+
+    buildTypes {
+        getByName("release") {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            // 0.7 测试发布包使用本机调试签名，正式商店版将改用独立发布密钥。
+            signingConfig = signingConfigs.getByName("debug")
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
+        }
     }
 
     compileOptions {
@@ -32,6 +47,7 @@ kotlin {
 }
 
 dependencies {
+    implementation(project(":shared"))
     val composeBom = platform("androidx.compose:compose-bom:2024.09.03")
     implementation(composeBom)
     androidTestImplementation(composeBom)
@@ -50,4 +66,11 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.room:room-testing:2.6.1")
+}
+
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
 }

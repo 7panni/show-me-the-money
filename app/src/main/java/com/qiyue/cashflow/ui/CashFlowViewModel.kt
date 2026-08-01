@@ -6,6 +6,9 @@ import androidx.lifecycle.viewModelScope
 import com.qiyue.cashflow.cashflow.CashFlowCalculator
 import com.qiyue.cashflow.cashflow.CashFlowSummary
 import com.qiyue.cashflow.data.*
+import com.qiyue.cashflow.shared.AppMode
+import com.qiyue.cashflow.shared.AppProfile
+import com.qiyue.cashflow.shared.FeatureModule
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -19,7 +22,8 @@ data class CashFlowUiState(
     val settings: AppSettingsEntity = AppSettingsEntity(),
     val horizonDays: Int = 90,
     val summary: CashFlowSummary = CashFlowCalculator().forecast(emptyList(), emptyList(), emptyList(), emptyList()),
-    val message: String? = null
+    val message: String? = null,
+    val isReady: Boolean = false,
 )
 
 class CashFlowViewModel(application: Application) : AndroidViewModel(application) {
@@ -32,7 +36,7 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
     init {
         viewModelScope.launch {
             seedIfEmpty()
-            ensureDefaultStructure()
+            if (dao.getSettings()?.onboardingCompleted == true) ensureDefaultStructure()
         }
     }
 
@@ -59,8 +63,18 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
                 horizonDays = LONG_TERM_RISK_DAYS
             ).firstShortageDate
         }
-        CashFlowUiState(sortedAccounts, plans, budgets, adjustments, holdings, settings, days,
-            visibleSummary.copy(firstShortageDate = longTermShortage), values[7] as String?)
+        CashFlowUiState(
+            accounts = sortedAccounts,
+            plans = plans,
+            budgets = budgets,
+            adjustments = adjustments,
+            cryptoHoldings = holdings,
+            settings = settings,
+            horizonDays = days,
+            summary = visibleSummary.copy(firstShortageDate = longTermShortage),
+            message = values[7] as String?,
+            isReady = true,
+        )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), CashFlowUiState())
 
     fun setHorizon(days: Int) { horizon.value = days }
@@ -105,8 +119,11 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
         showCrypto: Boolean,
         showPaypalAccount: Boolean,
         showAlipayAccount: Boolean,
-        showCryptoAccount: Boolean
+        showCryptoAccount: Boolean,
+        appMode: AppMode,
+        customModules: Set<FeatureModule>,
     ) = launch {
+        val profile = AppProfile(appMode, customModules)
         dao.upsertSettings(uiState.value.settings.copy(
             defaultHorizonDays = defaultDays,
             budgetMonthStartDay = budgetStartDay.coerceIn(1, 28),
@@ -115,15 +132,54 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
             showPaypalOnAccounts = showPaypalAccount,
             showAlipayOnAccounts = showAlipayAccount,
             showCryptoOnAccounts = showCryptoAccount,
+            appMode = appMode.name,
+            customModulesCsv = profile.modulesCsv(),
+            onboardingCompleted = true,
             seeded = true
         ))
         horizon.value = defaultDays
+        message.value = "设置已保存；切换模式不会删除现有数据"
+    }
+
+    fun completeOnboarding(
+        mode: AppMode,
+        customModules: Set<FeatureModule>,
+        accountTypes: Set<AccountType>,
+        addExamples: Boolean,
+    ) = launch {
+        val profile = AppProfile(mode, customModules)
+        val chosenTypes = accountTypes.ifEmpty { setOf(AccountType.CASH) }
+        if (dao.accountCount() == 0) {
+            val examples = if (addExamples) exampleBalances else emptyMap()
+            dao.insertAccounts(chosenTypes.map { type -> defaultAccount(type, examples[type] ?: 0L) })
+            if (AccountType.CRYPTO in chosenTypes) {
+                dao.insertCryptoHoldings(listOf(
+                    CryptoHoldingEntity("USDT", if (addExamples) 100_000_000L else 0L),
+                    CryptoHoldingEntity("BTC"),
+                    CryptoHoldingEntity("LTC"),
+                ))
+            }
+            if (addExamples) addExampleForecastData(profile)
+        }
+        dao.upsertSettings((dao.getSettings() ?: AppSettingsEntity()).copy(
+            showUsdOnHome = AccountType.PAYPAL in chosenTypes,
+            showCryptoOnHome = AccountType.CRYPTO in chosenTypes,
+            showPaypalOnAccounts = AccountType.PAYPAL in chosenTypes,
+            showAlipayOnAccounts = AccountType.ALIPAY in chosenTypes,
+            showCryptoOnAccounts = AccountType.CRYPTO in chosenTypes,
+            appMode = mode.name,
+            customModulesCsv = profile.modulesCsv(),
+            onboardingCompleted = true,
+            seeded = true,
+        ))
+        markStructureCurrent()
+        message.value = "设置完成，示例数据可在“设置”中一键清空"
     }
 
     fun clearAll() = launch {
         dao.replaceForecastData(emptyList(), emptyList(), emptyList(), emptyList(),
-            AppSettingsEntity(seeded = true, defaultHorizonDays = 90, budgetMonthStartDay = 21))
-        message.value = "测试数据已清空"
+            uiState.value.settings.copy(seeded = true, onboardingCompleted = true))
+        message.value = "账户和计划数据已清空，可从“账户”重新开始"
     }
 
     suspend fun exportJson(): String = BackupJson.encode(ForecastBackup(
@@ -161,23 +217,97 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
     private fun launch(block: suspend () -> Unit) { viewModelScope.launch { block() } }
 
     private suspend fun seedIfEmpty() {
-        if (dao.accountCount() > 0) return
-        val today = LocalDate.now()
-        dao.upsertAccount(AccountEntity(name="银行", currentBalanceCents=1_200_000, initialBalanceCents=1_200_000, accountType=AccountType.CMB))
-        dao.upsertAccount(AccountEntity(name="微信", currentBalanceCents=250_000, initialBalanceCents=250_000, accountType=AccountType.WECHAT))
-        dao.upsertAccount(AccountEntity(name="支付宝", accountType=AccountType.ALIPAY))
-        dao.upsertAccount(AccountEntity(name="现金", accountType=AccountType.CASH))
-        dao.upsertAccount(AccountEntity(name="PayPal", currentBalanceCents=30_000, initialBalanceCents=30_000, currencyCode="USD", accountType=AccountType.PAYPAL))
-        dao.upsertAccount(AccountEntity(name="数字货币", currencyCode="CRYPTO", exchangeRateToCnyMicros=0, includeInForecast=false, accountType=AccountType.CRYPTO))
-        dao.insertCryptoHoldings(listOf(CryptoHoldingEntity("USDT"),CryptoHoldingEntity("BTC"),CryptoHoldingEntity("LTC")))
-        dao.upsertPlan(PlannedTransactionEntity(name="工资", type=EntryType.INCOME, amountCents=1_000_000, accountName="银行", startDateEpochDay=today.withDayOfMonth(minOf(10,today.lengthOfMonth())).toEpochDay(), repeatRule=RepeatRule.MONTHLY))
-        dao.upsertPlan(PlannedTransactionEntity(name="房租", type=EntryType.EXPENSE, amountCents=380_000, accountName="银行", startDateEpochDay=today.withDayOfMonth(minOf(5,today.lengthOfMonth())).plusMonths(1).toEpochDay(), repeatRule=RepeatRule.MONTHLY))
-        dao.upsertPlan(PlannedTransactionEntity(name="电脑分期", type=EntryType.EXPENSE, amountCents=60_000, accountName="银行", startDateEpochDay=today.plusDays(7).toEpochDay(), repeatRule=RepeatRule.MONTHLY, installmentTotal=6, installmentRemaining=6))
-        val (cycleStart, cycleEnd) = BudgetCycles.containing(today, 21)
-        dao.upsertBudget(BudgetEntity(name="预算", totalCents=300_000, remainingCents=220_000, period=BudgetPeriod.MONTHLY, startDateEpochDay=cycleStart.toEpochDay(), endDateEpochDay=cycleEnd.toEpochDay(), accountName=""))
-        dao.upsertSettings(AppSettingsEntity(defaultHorizonDays=90, budgetMonthStartDay=21, seeded=true))
-        horizon.value = 90
+        if (dao.getSettings() != null) return
+        dao.upsertSettings(AppSettingsEntity(
+            defaultHorizonDays = 90,
+            budgetMonthStartDay = 21,
+            appMode = AppMode.SIMPLE.name,
+            onboardingCompleted = false,
+            seeded = true,
+        ))
     }
+
+    private suspend fun addExampleForecastData(profile: AppProfile) {
+        val accounts = dao.getAccounts()
+        val cnyAccount = accounts.firstOrNull { it.currencyCode == "CNY" } ?: return
+        val today = LocalDate.now()
+        dao.upsertPlan(PlannedTransactionEntity(
+            name = "示例工资", type = EntryType.INCOME, amountCents = 600_000,
+            accountName = cnyAccount.name, startDateEpochDay = today.plusDays(5).toEpochDay(),
+            repeatRule = RepeatRule.MONTHLY,
+        ))
+        dao.upsertPlan(PlannedTransactionEntity(
+            name = "示例房租", type = EntryType.EXPENSE, amountCents = 200_000,
+            accountName = cnyAccount.name, startDateEpochDay = today.plusDays(10).toEpochDay(),
+            repeatRule = RepeatRule.MONTHLY,
+        ))
+        if (profile.isEnabled(FeatureModule.INSTALLMENT)) {
+            dao.upsertPlan(PlannedTransactionEntity(
+                name = "示例分期", type = EntryType.EXPENSE, amountCents = 30_000,
+                accountName = cnyAccount.name, startDateEpochDay = today.plusDays(7).toEpochDay(),
+                repeatRule = RepeatRule.MONTHLY, installmentTotal = 3, installmentRemaining = 3,
+            ))
+        }
+        if (profile.isEnabled(FeatureModule.BUDGET)) {
+            val (cycleStart, cycleEnd) = BudgetCycles.containing(today, 21)
+            dao.upsertBudget(BudgetEntity(
+                name = "预算", totalCents = 200_000, remainingCents = 150_000,
+                period = BudgetPeriod.MONTHLY, startDateEpochDay = cycleStart.toEpochDay(),
+                endDateEpochDay = cycleEnd.toEpochDay(), accountName = "",
+            ))
+        }
+        if (profile.isEnabled(FeatureModule.TEMPORARY_CASHFLOW)) {
+            dao.upsertAdjustment(AdjustmentEntity(
+                name = "示例临时收入", type = AdjustmentType.TEMPORARY, amountCents = 50_000,
+                accountName = cnyAccount.name, dateEpochDay = today.plusDays(14).toEpochDay(),
+                isIncome = true,
+            ))
+        }
+    }
+
+    private fun defaultAccount(type: AccountType, balance: Long): AccountEntity {
+        val name = when (type) {
+            AccountType.CMB -> "银行"
+            AccountType.WECHAT -> "微信"
+            AccountType.ALIPAY -> "支付宝"
+            AccountType.CASH -> "现金"
+            AccountType.PAYPAL -> "PayPal"
+            AccountType.CRYPTO -> "数字货币"
+            AccountType.CUSTOM -> "自定义账户"
+        }
+        val currency = when (type) {
+            AccountType.PAYPAL -> "USD"
+            AccountType.CRYPTO -> "CRYPTO"
+            else -> "CNY"
+        }
+        return AccountEntity(
+            name = name,
+            initialBalanceCents = if (currency == "CRYPTO") 0L else balance,
+            currentBalanceCents = if (currency == "CRYPTO") 0L else balance,
+            currencyCode = currency,
+            exchangeRateToCnyMicros = if (currency == "CNY") 1_000_000 else 0,
+            accountType = type,
+        )
+    }
+
+    private fun markStructureCurrent() {
+        setupPrefs.edit()
+            .putBoolean("v4_currency_groups_applied", true)
+            .putBoolean("v5_single_budget_applied", true)
+            .putBoolean("v6_account_free_budget_applied", true)
+            .putBoolean("v063_bank_rename_applied", true)
+            .putBoolean("v064_all_accounts_enabled", true)
+            .putBoolean("v065_cash_account_applied", true)
+            .apply()
+    }
+
+    private val exampleBalances = mapOf(
+        AccountType.CMB to 800_000L,
+        AccountType.WECHAT to 120_000L,
+        AccountType.ALIPAY to 60_000L,
+        AccountType.CASH to 20_000L,
+        AccountType.PAYPAL to 20_000L,
+    )
 
     private suspend fun ensureDefaultStructure() {
         if (!setupPrefs.getBoolean("v4_currency_groups_applied", false)) {

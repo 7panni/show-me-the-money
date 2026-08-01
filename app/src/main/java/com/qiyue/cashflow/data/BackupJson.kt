@@ -50,6 +50,9 @@ object BackupJson {
             put("showPaypalOnAccounts", data.settings.showPaypalOnAccounts)
             put("showAlipayOnAccounts", data.settings.showAlipayOnAccounts)
             put("showCryptoOnAccounts", data.settings.showCryptoOnAccounts)
+            put("appMode", data.settings.appMode)
+            put("customModules", data.settings.customModulesCsv)
+            put("onboardingCompleted", data.settings.onboardingCompleted)
             put("seeded", data.settings.seeded)
         })
     }.toString(2)
@@ -96,6 +99,9 @@ object BackupJson {
                 showPaypalOnAccounts=s.optBoolean("showPaypalOnAccounts", true),
                 showAlipayOnAccounts=s.optBoolean("showAlipayOnAccounts", true),
                 showCryptoOnAccounts=s.optBoolean("showCryptoOnAccounts", true),
+                appMode=s.optString("appMode", "SIMPLE"),
+                customModulesCsv=s.optString("customModules", ""),
+                onboardingCompleted=s.optBoolean("onboardingCompleted", true),
                 seeded=s.optBoolean("seeded", true)
             ),
             holdings

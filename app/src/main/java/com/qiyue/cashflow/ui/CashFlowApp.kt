@@ -26,6 +26,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.ImeAction
@@ -478,6 +479,7 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
 
 @Composable private fun SettingsPage(state: CashFlowUiState, pad: PaddingValues, vm: CashFlowViewModel) {
     val scope = rememberCoroutineScope()
+    val uriHandler = LocalUriHandler.current
     var days by remember(state.settings.defaultHorizonDays) { mutableIntStateOf(state.settings.defaultHorizonDays) }
     var budgetStartDay by remember(state.settings.budgetMonthStartDay) { mutableStateOf(state.settings.budgetMonthStartDay.toString()) }
     var hiddenHomeCurrencies by remember(state.settings.hiddenHomeCurrenciesCsv,state.accounts.map{it.currencyCode}) {
@@ -552,9 +554,19 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
             Text("所有数据只保存在本机；恢复会替换测试版当前数据。",color=Color.Gray,style=MaterialTheme.typography.bodySmall)
         }}}
         item { Card { Column(Modifier.padding(16.dp)) {
-            Section("版本信息"); Text("简易现金流计算-测试版 ${BuildConfig.VERSION_NAME.removeSuffix("-test")}")
-            Text("开发者：7panni",color=Color.Gray)
-            Text("独立安装 · 本地 Room 数据库",color=Color.Gray)
+            Section("版本信息")
+            Text("啥时候有钱 ${BuildConfig.VERSION_NAME.removeSuffix("-test")}")
+            Text("该版本为简易版，仅供简单计算现金状况，暂未包含理财统计功能。",color=Color.Gray)
+            Text("如有存款、基金等投资，建议用“未来临时收支”功能替代。",color=Color.Gray)
+            Spacer(Modifier.height(8.dp))
+            Text("开发者：尚宸鸣 | 使用 Codex 协助开发")
+            TextButton({uriHandler.openUri("https://github.com/7panni")},contentPadding=PaddingValues(0.dp)) {
+                Text("GitHub：github.com/7panni")
+            }
+            TextButton({uriHandler.openUri("https://7panni.com")},contentPadding=PaddingValues(0.dp)) {
+                Text("Blog：7panni.com")
+            }
+            Text("独立安装 · 数据仅保存在本机",color=Color.Gray)
         }}}
     }
     if(confirmClear) ConfirmDialog("清空全部测试数据？","账户、计划、预算和修正都会删除。",{confirmClear=false},{vm.clearAll();confirmClear=false})

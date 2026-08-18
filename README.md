@@ -6,6 +6,8 @@ A simple and intuitive cash flow forecasting app for mobile. Maintain account ba
 
 当前为简易版，仅供简单计算现金状况，暂未包含理财统计功能。开发者：尚宸鸣，使用 OpenAI Codex 协助开发。
 
+后续计划在 2.0 以后逐步加入可选的存款、基金、贷款和财务知识模块。项目已预留模块化功能配置、Android/iPhone 共用预测核心及 iPhone 源码底座，但具体理财数据模型和计算器尚未实现。当前版本将进入相对稳定维护期，短期内以问题修复为主，不承诺频繁增加功能。
+
 项目地址：[github.com/7panni/show-me-the-money](https://github.com/7panni/show-me-the-money)
 
 ## 实际界面

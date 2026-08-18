@@ -114,7 +114,10 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
         planPostingMutex.withLock { reconcileDuePlans() }
     }
     fun saveBudget(item: BudgetEntity) = launch { dao.upsertBudget(item) }
-    fun saveAdjustment(item: AdjustmentEntity) = launch { dao.upsertAdjustment(item) }
+    fun saveAdjustment(item: AdjustmentEntity) = launch {
+        dao.upsertAdjustment(item)
+        message.value = if(item.isIncome) "恭喜，向自由又迈进了一步！" else "临时支出已保存"
+    }
     fun saveCryptoHoldings(items: List<CryptoHoldingEntity>) = launch {
         items.forEach { dao.upsertCryptoHolding(it) }
     }

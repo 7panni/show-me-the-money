@@ -42,6 +42,7 @@ import com.qiyue.cashflow.cashflow.CashFlowCalculator
 import com.qiyue.cashflow.cashflow.CashFlowDay
 import com.qiyue.cashflow.cashflow.initialPlanPostingCursor
 import com.qiyue.cashflow.data.*
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.math.RoundingMode
 import java.time.LocalDate
@@ -66,6 +67,12 @@ private enum class Tab(val title: String, val icon: String) {
 fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
     val state by vm.uiState.collectAsState()
     var tab by remember { mutableStateOf(Tab.HOME) }
+    LaunchedEffect(state.message,state.pendingTransferUndo) {
+        if(state.message!=null) {
+            delay(if(state.pendingTransferUndo!=null)8_000L else 4_000L)
+            vm.dismissMessage()
+        }
+    }
     MaterialTheme(colorScheme = lightColorScheme(
         primary = Green,
         onPrimary = Color.White,
@@ -391,12 +398,27 @@ private val shortageMessages = listOf(
         modifier=Modifier.fillMaxWidth(),
         shape=RoundedCornerShape(2.dp),
         colors=CardDefaults.cardColors(containerColor=if(date==null)SoftGreen else Color(0xFF91483E)),
-    ) { Column(Modifier.fillMaxWidth().padding(horizontal=14.dp,vertical=13.dp),verticalArrangement=Arrangement.spacedBy(5.dp)) {
-        if(date==null) Text("长期预测检查：现金为负日期无",fontWeight=FontWeight.SemiBold,fontSize=11.sp,color=Green)
+    ) { Column(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=16.dp),verticalArrangement=Arrangement.spacedBy(7.dp)) {
+        if(date==null) {
+            Text("未来现金保持为正",fontWeight=FontWeight.Bold,fontSize=16.sp,color=Green)
+            if(showTip) Text(
+                "今天的从容，来自你为明天留出的余地。",
+                fontWeight=FontWeight.SemiBold,
+                fontSize=13.sp,
+                lineHeight=19.sp,
+                color=Green,
+            )
+        }
         else {
             Text("${monthDay(date)} 起现金预计为负",fontWeight=FontWeight.Bold,fontSize=16.sp,color=Color.White)
             balanceOnDate?.let{Text("预计缺口 ${money(it.absoluteValue)}",color=Color(0xFFF0D1CB),fontSize=10.sp)}
-            if(showTip&&message!=null) Text(message,fontWeight=FontWeight.SemiBold,color=Color.White,fontSize=10.sp)
+            if(showTip&&message!=null) Text(
+                message,
+                fontWeight=FontWeight.SemiBold,
+                color=Color.White,
+                fontSize=13.sp,
+                lineHeight=19.sp,
+            )
             Text("行动提醒：提前检查日期，推迟非必要支出或补充确定收入。",color=Color(0xFFF0D1CB),fontSize=9.sp)
         }
     }}

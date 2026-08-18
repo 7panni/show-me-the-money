@@ -75,6 +75,8 @@ data class PlannedTransactionEntity(
     val installmentTotal: Int = 1,
     val installmentRemaining: Int = 0,
     val installmentTotalAmountCents: Long = 0,
+    /** 已自动计入真实余额的日期范围；该日期及以前的计划不会再次入账。 */
+    val balanceAppliedThroughEpochDay: Long? = null,
     val isActive: Boolean = true
 )
 

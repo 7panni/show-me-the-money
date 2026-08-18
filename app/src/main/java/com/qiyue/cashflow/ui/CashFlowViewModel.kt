@@ -5,10 +5,13 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.qiyue.cashflow.cashflow.CashFlowCalculator
 import com.qiyue.cashflow.cashflow.CashFlowSummary
+import com.qiyue.cashflow.cashflow.AutomaticPlanPoster
 import com.qiyue.cashflow.data.*
 import com.qiyue.cashflow.shared.AppMode
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.time.LocalDate
 
 data class CashFlowUiState(
@@ -31,9 +34,11 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
     private val dao = AppDatabase.get(application).transactionDao()
     private val setupPrefs = application.getSharedPreferences("forecast_setup", 0)
     private val calculator = CashFlowCalculator()
+    private val automaticPlanPoster = AutomaticPlanPoster(calculator)
     private val horizon = MutableStateFlow(90)
     private val message = MutableStateFlow<String?>(null)
     private val transferUndo = MutableStateFlow<TransferUndo?>(null)
+    private val planPostingMutex = Mutex()
 
     init {
         viewModelScope.launch {
@@ -104,7 +109,10 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
             else -> message.value = "账户名称已存在，请换一个名称"
         }
     }
-    fun savePlan(item: PlannedTransactionEntity) = launch { dao.upsertPlan(item) }
+    fun savePlan(item: PlannedTransactionEntity) = launch {
+        dao.upsertPlan(item)
+        planPostingMutex.withLock { reconcileDuePlans() }
+    }
     fun saveBudget(item: BudgetEntity) = launch { dao.upsertBudget(item) }
     fun saveAdjustment(item: AdjustmentEntity) = launch { dao.upsertAdjustment(item) }
     fun saveCryptoHoldings(items: List<CryptoHoldingEntity>) = launch {
@@ -114,21 +122,8 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
     fun deleteBudget(id: Long) = launch { dao.deleteBudget(id) }
     fun deleteAdjustment(id: Long) = launch { dao.deleteAdjustment(id) }
 
-    fun applyAdjustmentToBalance(item: AdjustmentEntity) = launch {
-        if (item.type != AdjustmentType.TEMPORARY || item.appliedToBalance) return@launch
-        if (item.dateEpochDay > LocalDate.now().toEpochDay()) {
-            message.value = "发生日期到来后才能计入真实余额"
-            return@launch
-        }
-        val account = dao.getAccounts().firstOrNull { it.name == item.accountName }
-        if (account == null) {
-            message.value = "找不到对应账户，请先编辑这项临时收支"
-            return@launch
-        }
-        val delta = if (item.isIncome) item.amountCents else -item.amountCents
-        dao.upsertAccount(account.copy(currentBalanceCents = account.currentBalanceCents + delta))
-        dao.upsertAdjustment(item.copy(appliedToBalance = true))
-        message.value = "已计入真实余额，预测不会重复计算"
+    fun refreshDuePlans() = launch {
+        planPostingMutex.withLock { reconcileDuePlans() }
     }
 
     fun calibrate(account: AccountEntity, newBalanceCents: Long) = launch {
@@ -273,7 +268,10 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
                 restoredAccounts,
                 it.plans.map { plan -> plan.copy(
                     accountName = renamed(plan.accountName),
-                    toAccountName = plan.toAccountName?.let(::renamed)
+                    toAccountName = plan.toAccountName?.let(::renamed),
+                    // 旧备份没有自动入账游标；从恢复当天开始，避免追溯扣除历史款项。
+                    balanceAppliedThroughEpochDay = plan.balanceAppliedThroughEpochDay
+                        ?: LocalDate.now().toEpochDay(),
                 ) },
                 it.budgets.map { budget -> budget.copy(
                     accountName = "",
@@ -358,6 +356,7 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
             .putBoolean("v064_all_accounts_enabled", true)
             .putBoolean("v065_cash_account_applied", true)
             .putBoolean("v09_dynamic_visibility_applied", true)
+            .putBoolean("v14_default_accounts_visible_applied", true)
             .apply()
     }
 
@@ -477,6 +476,46 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
             }
             setupPrefs.edit().putBoolean("v09_dynamic_visibility_applied", true).apply()
         }
+
+        if (!setupPrefs.getBoolean("v14_default_accounts_visible_applied", false)) {
+            val accounts = dao.getAccounts()
+            val settings = dao.getSettings() ?: AppSettingsEntity(seeded = true)
+            val newlyVisibleIds = accounts.filter {
+                it.accountType == AccountType.PAYPAL || it.accountType == AccountType.CRYPTO
+            }.map { it.id }.toSet()
+            val hiddenIds = parseAccountIds(settings.hiddenAccountIdsCsv) - newlyVisibleIds
+            dao.upsertSettings(settings.copy(
+                showPaypalOnAccounts = true,
+                showCryptoOnAccounts = true,
+                hiddenAccountIdsCsv = hiddenIds.sorted().joinToString(","),
+            ))
+            setupPrefs.edit().putBoolean("v14_default_accounts_visible_applied", true).apply()
+        }
+    }
+
+    /**
+     * 将到今天为止的固定收支和分期一次性计入真实余额。
+     * 游标写回计划，确保重启或重复刷新不会再次入账；临时收支不经过这里。
+     */
+    private suspend fun reconcileDuePlans() {
+        val today = LocalDate.now()
+        val plans = dao.getPlans()
+
+        if (!setupPrefs.getBoolean("v14_automatic_plan_posting_initialized", false)) {
+            val safeUpdates = automaticPlanPoster.initializeExistingPlans(plans, today)
+            dao.commitAutomaticPlanPosting(emptyList(), safeUpdates)
+            setupPrefs.edit().putBoolean("v14_automatic_plan_posting_initialized", true).apply()
+            return
+        }
+
+        val result = automaticPlanPoster.postDuePlans(dao.getAccounts(), plans, today)
+        if (result.plans.isNotEmpty() || result.postedCount > 0) {
+            dao.commitAutomaticPlanPosting(result.accounts, result.plans)
+        }
+        when {
+            result.postedCount > 0 -> message.value = "已自动处理 ${result.postedCount} 笔固定款项，真实余额已更新"
+            result.missingAccount -> message.value = "有到期款项找不到对应账户，请检查计划中的账户"
+        }
     }
 
     private fun accountOrder(account: AccountEntity): Int = when (account.name) {
@@ -493,6 +532,7 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
         private const val LONG_TERM_RISK_DAYS = 3650
         private val DEFAULT_VISIBLE_ACCOUNT_TYPES = setOf(
             AccountType.CMB, AccountType.WECHAT, AccountType.ALIPAY, AccountType.CASH,
+            AccountType.PAYPAL, AccountType.CRYPTO,
         )
 
         private fun parseAccountIds(csv: String): Set<Long> = csv.split(',')

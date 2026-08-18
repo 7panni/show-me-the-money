@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.qiyue.cashflow.cashflow.CashFlowCalculator
 import com.qiyue.cashflow.cashflow.CashFlowDay
+import com.qiyue.cashflow.cashflow.initialPlanPostingCursor
 import com.qiyue.cashflow.data.*
 import kotlinx.coroutines.launch
 import java.math.RoundingMode
@@ -113,7 +114,7 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
             }}
         ) { pad ->
             when (tab) {
-                Tab.HOME -> HomePage(state, pad, vm)
+                Tab.HOME -> HomePage(state, pad, vm) { tab = Tab.PLAN }
                 Tab.PLAN -> PlanPage(state, pad, vm)
                 Tab.ACCOUNT -> AccountPage(state, pad, vm)
                 Tab.SETTINGS -> SettingsPage(state, pad, vm)
@@ -163,7 +164,10 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
     complete: (Set<AccountType>, Boolean) -> Unit,
 ) {
     var accounts by remember {
-        mutableStateOf(setOf(AccountType.CMB, AccountType.WECHAT, AccountType.ALIPAY, AccountType.CASH))
+        mutableStateOf(setOf(
+            AccountType.CMB, AccountType.WECHAT, AccountType.ALIPAY,
+            AccountType.CASH, AccountType.PAYPAL, AccountType.CRYPTO,
+        ))
     }
     var examples by remember { mutableStateOf(true) }
     val accountOptions = listOf(
@@ -202,7 +206,12 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
     }
 }
 
-@Composable private fun HomePage(state: CashFlowUiState, pad: PaddingValues, vm: CashFlowViewModel) {
+@Composable private fun HomePage(
+    state: CashFlowUiState,
+    pad: PaddingValues,
+    vm: CashFlowViewModel,
+    openPlans: () -> Unit,
+) {
     val s = state.summary
     val hiddenHomeCurrencies = remember(state.settings.hiddenHomeCurrenciesCsv) {
         parseCurrencyCodeCsv(state.settings.hiddenHomeCurrenciesCsv)
@@ -263,19 +272,58 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
             s.days.firstOrNull{it.date==s.firstShortageDate}?.balanceCents,
             state.settings.showFinanceTips,
         ) }
-        item { PageSectionHeader("接下来会发生什么") }
+        item { PageSectionHeader("接下来会发生什么") {
+            Text("查看全部计划 ›",Modifier.clickable(onClick=openPlans),color=Muted,fontSize=9.sp)
+        } }
         val upcoming = s.days.flatMap { d -> d.events.filterNot { it.kind == "预算" }.map { d to it } }.take(20)
         if (upcoming.isEmpty()) item { EmptyCard("暂无未来款项，请到“计划”添加固定收支。") }
-        else items(upcoming) { (day,event) ->
-            Card(Modifier.fillMaxWidth().border(1.dp,Line),shape=RoundedCornerShape(0.dp),colors=CardDefaults.cardColors(containerColor=Panel)) { Row(Modifier.fillMaxWidth().padding(horizontal=12.dp,vertical=10.dp), verticalAlignment=Alignment.CenterVertically) {
-                Text(day.date.dayOfMonth.toString().padStart(2,'0'),fontSize=18.sp,fontWeight=FontWeight.Bold,modifier=Modifier.width(38.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(event.name, fontWeight=FontWeight.SemiBold,fontSize=12.sp)
-                    Text("${day.date.monthValue}月 · ${event.kind} · ${event.accountName}", color=Muted, fontSize=9.sp)
+        else item { UpcomingEventsCard(upcoming) }
+    }
+}
+
+@Composable private fun UpcomingEventsCard(upcoming:List<Pair<CashFlowDay,com.qiyue.cashflow.cashflow.ForecastEvent>>) {
+    Column(Modifier.fillMaxWidth().background(Panel).border(1.dp,Line)) {
+        upcoming.forEachIndexed { index,(day,event) ->
+            Row(
+                Modifier.fillMaxWidth().heightIn(min=66.dp).padding(end=14.dp),
+                verticalAlignment=Alignment.CenterVertically,
+            ) {
+                Box(Modifier.width(92.dp).height(66.dp)) {
+                    if(index<upcoming.lastIndex) Box(
+                        Modifier.align(Alignment.BottomStart).offset(x=18.dp).width(1.dp).height(34.dp).background(Line)
+                    )
+                    if(index>0) Box(
+                        Modifier.align(Alignment.TopStart).offset(x=18.dp).width(1.dp).height(28.dp).background(Line)
+                    )
+                    Box(
+                        Modifier.align(Alignment.CenterStart).offset(x=13.dp).size(11.dp)
+                            .background(if(event.amountCents<0)Red else Green,CircleShape)
+                            .border(2.dp,Panel,CircleShape)
+                    )
+                    Row(
+                        Modifier.align(Alignment.CenterStart).padding(start=34.dp),
+                        verticalAlignment=Alignment.Bottom,
+                    ) {
+                        Text(day.date.dayOfMonth.toString(),fontSize=18.sp,fontWeight=FontWeight.Bold)
+                        Spacer(Modifier.width(3.dp))
+                        Text("${day.date.monthValue}月",color=Muted,fontSize=9.sp,modifier=Modifier.padding(bottom=3.dp))
+                    }
                 }
-                Text(if(event.amountCents==0L) "转账" else signedCurrencyMoney(event.amountCents,event.currencyCode),
-                    color=if(event.amountCents<0) Red else Green, fontWeight=FontWeight.Bold,fontSize=12.sp)
-            }}
+                Row(Modifier.weight(1f),verticalAlignment=Alignment.CenterVertically) {
+                    Text(event.name,fontWeight=FontWeight.SemiBold,fontSize=12.sp,maxLines=1,overflow=TextOverflow.Ellipsis)
+                    if(event.accountName.isNotBlank()) {
+                        Spacer(Modifier.width(6.dp))
+                        Text(event.accountName,color=Muted,fontSize=9.sp,maxLines=1)
+                    }
+                }
+                Text(
+                    if(event.amountCents==0L)"转账" else signedCurrencyMoney(event.amountCents,event.currencyCode),
+                    color=if(event.amountCents<0)Red else Green,
+                    fontWeight=FontWeight.Bold,
+                    fontSize=12.sp,
+                )
+            }
+            if(index<upcoming.lastIndex) HorizontalDivider(Modifier.padding(start=36.dp),color=Line)
         }
     }
 }
@@ -479,18 +527,14 @@ private val shortageMessages = listOf(
             a.name, buildString {
                 append(if(a.isIncome)"临时收入" else "临时支出")
                 append(" · ${LocalDate.ofEpochDay(a.dateEpochDay)}")
-                if(a.appliedToBalance) append(" · 已计入真实余额")
+            if(a.appliedToBalance) append(" · 历史记录")
             },
             currencyMoney(
                 a.amountCents,
                 state.accounts.firstOrNull { it.name == a.accountName }?.currencyCode ?: "CNY"
             ), true, null,
-            if(a.type==AdjustmentType.TEMPORARY && !a.appliedToBalance) {{adjustmentEdit=a;showAdjustment=true}} else null,
-            {delete="“${a.name}”" to {vm.deleteAdjustment(a.id)}},
-            extraAction = if(
-                a.type==AdjustmentType.TEMPORARY && !a.appliedToBalance &&
-                a.dateEpochDay<=LocalDate.now().toEpochDay()
-            ) "计入真实余额" to {vm.applyAdjustmentToBalance(a)} else null)
+            if(a.type==AdjustmentType.TEMPORARY) {{adjustmentEdit=a;showAdjustment=true}} else null,
+            {delete="“${a.name}”" to {vm.deleteAdjustment(a.id)}})
         }
     }
     if(showPlan) PlanDialog(planEdit,newPlanIsInstallment,state,{showPlan=false}) {vm.savePlan(it);showPlan=false}
@@ -573,9 +617,8 @@ private val shortageMessages = listOf(
                     Text(cryptoSummary(state.cryptoHoldings),color=Muted,fontSize=9.sp)
                 }
                 if(a.currencyCode!="CRYPTO") {
-                    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(7.dp),verticalAlignment=Alignment.CenterVertically) {
                     Row(
-                        Modifier.weight(1f).height(44.dp).border(1.dp,Color(0xFFBFC5BE),RoundedCornerShape(4.dp)).background(Color.White).padding(horizontal=10.dp),
+                        Modifier.fillMaxWidth().height(46.dp).border(1.dp,Color(0xFFBFC5BE),RoundedCornerShape(4.dp)).background(Color.White).padding(horizontal=10.dp),
                         verticalAlignment=Alignment.CenterVertically,
                     ) {
                     Text(when(a.currencyCode){"CNY"->"¥";"USD"->"$";else->a.currencyCode},color=Muted,fontSize=13.sp)
@@ -593,8 +636,16 @@ private val shortageMessages = listOf(
                         keyboardActions=KeyboardActions(onDone={saveBalance();focusManager.clearFocus()})
                     )
                     }
-                    OutlinedButton({showCalculator=true},Modifier.height(40.dp),shape=RoundedCornerShape(0.dp),contentPadding=PaddingValues(horizontal=9.dp)){Text("计算器",fontSize=9.sp)}
-                    OutlinedButton({transferSource=a},Modifier.height(40.dp),shape=RoundedCornerShape(0.dp),contentPadding=PaddingValues(horizontal=9.dp),enabled=transferTargets.isNotEmpty()){Text("转账",fontSize=9.sp)}
+                    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(7.dp)) {
+                        OutlinedButton(
+                            {showCalculator=true},Modifier.weight(1f).height(36.dp),
+                            shape=RoundedCornerShape(0.dp),contentPadding=PaddingValues(horizontal=9.dp)
+                        ){Text("打开计算器",fontSize=9.sp)}
+                        OutlinedButton(
+                            {transferSource=a},Modifier.weight(1f).height(36.dp),
+                            shape=RoundedCornerShape(0.dp),contentPadding=PaddingValues(horizontal=9.dp),
+                            enabled=transferTargets.isNotEmpty()
+                        ){Text("转账",fontSize=9.sp)}
                     }
                 }
                 if(a.currencyCode=="CRYPTO") OutlinedButton({showCryptoEditor=true},shape=RoundedCornerShape(0.dp),contentPadding=PaddingValues(horizontal=10.dp,vertical=5.dp)){Text("修改持仓",fontSize=9.sp)}
@@ -739,12 +790,20 @@ private enum class InstallmentInputMode { PER_PAYMENT, TOTAL }
     var repeat by remember {mutableStateOf(old?.repeatRule?.takeIf{it in listOf(RepeatRule.WEEKLY,RepeatRule.MONTHLY,RepeatRule.QUARTERLY,RepeatRule.SEMIANNUAL,RepeatRule.YEARLY)}?:RepeatRule.MONTHLY)}
     var account by remember {mutableStateOf(old?.accountName?:state.accounts.firstOrNull()?.name.orEmpty())}
     var cryptoSymbol by remember {mutableStateOf(old?.currencyCode?.takeIf{it in listOf("USDT","BTC","LTC")} ?: "USDT")}
-    var date by remember {mutableStateOf(old?.startDateEpochDay?.let(LocalDate::ofEpochDay)?:LocalDate.now().plusDays(1))}
+    var date by remember {
+        mutableStateOf(
+            old?.let { plan ->
+                if (isInstallment) nextPlanDate(plan, LocalDate.now())
+                    ?: LocalDate.ofEpochDay(plan.startDateEpochDay)
+                else LocalDate.ofEpochDay(plan.startDateEpochDay)
+            } ?: LocalDate.now().plusDays(1)
+        )
+    }
     var hasEnd by remember {mutableStateOf(old?.endDateEpochDay != null)}
     var endDate by remember {mutableStateOf(old?.endDateEpochDay?.let(LocalDate::ofEpochDay)?:date.plusYears(1))}
     var installmentMode by remember {mutableStateOf(if(old==null)InstallmentInputMode.PER_PAYMENT else InstallmentInputMode.TOTAL)}
     val oldPeriods=old?.installmentTotal?.coerceAtLeast(2)?:12
-    val oldRemaining=old?.installmentRemaining?.takeIf{it>0}?.coerceAtMost(oldPeriods)?:oldPeriods
+    val oldRemaining=old?.let(::remainingInstallmentPeriods)?:oldPeriods
     var totalPeriods by remember {mutableStateOf(oldPeriods.toString())}
     var paidPeriods by remember {mutableStateOf((oldPeriods-oldRemaining).toString())}
     val oldGrandTotal=old?.let{if(it.installmentTotalAmountCents>0)it.installmentTotalAmountCents else it.amountCents*oldPeriods}
@@ -776,7 +835,10 @@ private enum class InstallmentInputMode { PER_PAYMENT, TOTAL }
                     amountCents=values.first,currencyCode=currency,exchangeRateToCnyMicros=0,
                     accountName=account,startDateEpochDay=date.toEpochDay(),repeatRule=RepeatRule.MONTHLY,
                     installmentTotal=periods,installmentRemaining=periods-paid,
-                    installmentTotalAmountCents=values.second,isActive=old?.isActive?:true,
+                    installmentTotalAmountCents=values.second,
+                    balanceAppliedThroughEpochDay=old?.balanceAppliedThroughEpochDay
+                        ?: initialPlanPostingCursor(date),
+                    isActive=old?.isActive?:true,
                 ))
             } else {
                 val cents=parseCurrencyAmount(amount,currency)?.takeIf{it>0}?:return@EditDialog
@@ -785,7 +847,10 @@ private enum class InstallmentInputMode { PER_PAYMENT, TOTAL }
                     id=old?.id?:0,name=name.ifBlank{if(type==EntryType.INCOME)"工资" else "房租"},type=type,
                     amountCents=cents,currencyCode=currency,exchangeRateToCnyMicros=0,
                     accountName=account,startDateEpochDay=date.toEpochDay(),repeatRule=repeat,
-                    endDateEpochDay=endDate.toEpochDay().takeIf{hasEnd},isActive=old?.isActive?:true,
+                    endDateEpochDay=endDate.toEpochDay().takeIf{hasEnd},
+                    balanceAppliedThroughEpochDay=old?.balanceAppliedThroughEpochDay
+                        ?: initialPlanPostingCursor(date),
+                    isActive=old?.isActive?:true,
                 ))
             }
         }
@@ -806,8 +871,10 @@ private enum class InstallmentInputMode { PER_PAYMENT, TOTAL }
             }
             if(installmentMode==InstallmentInputMode.PER_PAYMENT) MoneyField(perPayment,{perPayment=it},"每期金额（${currencyLabel(currency)}）")
             else MoneyField(grandTotal,{grandTotal=it},"分期总额（${currencyLabel(currency)}）")
-            TextFieldSimple(totalPeriods,{totalPeriods=it},"总期数",KeyboardType.Number)
-            TextFieldSimple(paidPeriods,{paidPeriods=it},"已支付期数",KeyboardType.Number)
+            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                Box(Modifier.weight(1f)){TextFieldSimple(totalPeriods,{totalPeriods=it},"总期数",KeyboardType.Number)}
+                Box(Modifier.weight(1f)){TextFieldSimple(paidPeriods,{paidPeriods=it},"已支付期数",KeyboardType.Number)}
+            }
             val periods=totalPeriods.toIntOrNull()?:0
             val paid=paidPeriods.toIntOrNull()?:0
             val remaining=(periods-paid).coerceAtLeast(0)
@@ -883,6 +950,7 @@ private enum class InstallmentInputMode { PER_PAYMENT, TOTAL }
         ChoiceRow(listOf(false,true),income,{income=it}){if(it)"收入" else "支出"}
         AccountChoice("账户",state.accounts,account){account=it};DateChoice("发生日期",date){date=it}
         Row(verticalAlignment=Alignment.CenterVertically){Checkbox(budget,{budget=it});Text("占用预算")}
+        Text("未来临时收支只影响预测，不会自动修改账户真实余额。",color=Color.Gray,style=MaterialTheme.typography.bodySmall)
     }
 }
 
@@ -1070,10 +1138,19 @@ private enum class InstallmentInputMode { PER_PAYMENT, TOTAL }
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable private fun EditDialog(title:String,close:()->Unit,save:()->Unit,content:@Composable ColumnScope.()->Unit) {
     BasicAlertDialog(onDismissRequest=close) {
-        Card(Modifier.fillMaxWidth().padding(10.dp).border(1.dp,Line),shape=RoundedCornerShape(0.dp),colors=CardDefaults.cardColors(containerColor=Panel)) {
-            Column(Modifier.padding(14.dp).heightIn(max=680.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(9.dp)){
-                Text(title,fontSize=19.sp,fontWeight=FontWeight.Bold);content()
-                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.End){TextButton(close){Text("取消")};Button(save,shape=RoundedCornerShape(0.dp)){Text("保存")}}
+        Card(Modifier.fillMaxWidth().padding(8.dp).border(1.dp,Line),shape=RoundedCornerShape(0.dp),colors=CardDefaults.cardColors(containerColor=Panel)) {
+            Column(Modifier.padding(horizontal=11.dp,vertical=9.dp).heightIn(max=620.dp)) {
+                Text(title,fontSize=16.sp,fontWeight=FontWeight.Bold)
+                Spacer(Modifier.height(5.dp))
+                Column(
+                    Modifier.weight(1f,fill=false).verticalScroll(rememberScrollState()),
+                    verticalArrangement=Arrangement.spacedBy(5.dp),
+                ){content()}
+                HorizontalDivider(Modifier.padding(top=6.dp),color=Line)
+                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.End){
+                    TextButton(close){Text("取消")}
+                    Button(save,shape=RoundedCornerShape(0.dp)){Text("保存")}
+                }
             }
         }
     }
@@ -1120,9 +1197,9 @@ private enum class InstallmentInputMode { PER_PAYMENT, TOTAL }
     Column(Modifier.fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(6.dp)){
         Text("$title：$date",fontWeight=FontWeight.SemiBold)
         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)){
-            OutlinedButton({onChange(date.minusDays(1))},Modifier.weight(1f),shape=RoundedCornerShape(0.dp),contentPadding=PaddingValues(horizontal=6.dp)){Text("前一天",maxLines=1)}
-            Button({showCalendar=true},Modifier.weight(1f),shape=RoundedCornerShape(0.dp),contentPadding=PaddingValues(horizontal=6.dp)){Text("日历",maxLines=1)}
-            OutlinedButton({onChange(date.plusDays(1))},Modifier.weight(1f),shape=RoundedCornerShape(0.dp),contentPadding=PaddingValues(horizontal=6.dp)){Text("后一天",maxLines=1)}
+            OutlinedButton({onChange(date.minusDays(1))},Modifier.weight(1f).height(36.dp),shape=RoundedCornerShape(0.dp),contentPadding=PaddingValues(horizontal=6.dp,vertical=0.dp)){Text("前一天",fontSize=10.sp,maxLines=1)}
+            Button({showCalendar=true},Modifier.weight(1f).height(36.dp),shape=RoundedCornerShape(0.dp),contentPadding=PaddingValues(horizontal=6.dp,vertical=0.dp)){Text("日历",fontSize=10.sp,maxLines=1)}
+            OutlinedButton({onChange(date.plusDays(1))},Modifier.weight(1f).height(36.dp),shape=RoundedCornerShape(0.dp),contentPadding=PaddingValues(horizontal=6.dp,vertical=0.dp)){Text("后一天",fontSize=10.sp,maxLines=1)}
         }
     }
     if(showCalendar){
@@ -1198,8 +1275,10 @@ internal fun installmentBreakdown(totalAmount:Long,periods:Int):Pair<Long,Long>?
 internal fun isInstallmentPlan(plan:PlannedTransactionEntity):Boolean =
     plan.installmentTotal>1 && plan.repeatRule==RepeatRule.MONTHLY && !plan.name.contains("房租")
 internal fun remainingInstallmentPeriods(plan:PlannedTransactionEntity):Int =
-    plan.installmentRemaining.takeIf{it>0}?.coerceAtMost(plan.installmentTotal.coerceAtLeast(1))
-        ?: plan.installmentTotal.coerceAtLeast(1)
+    if(plan.installmentTotal<=1)0
+    else if(plan.installmentRemaining>0)plan.installmentRemaining.coerceAtMost(plan.installmentTotal)
+    else if(plan.balanceAppliedThroughEpochDay==null)plan.installmentTotal
+    else 0
 internal fun installmentRemainingAmount(plan:PlannedTransactionEntity):Long {
     val periods=plan.installmentTotal.coerceAtLeast(1)
     val remaining=remainingInstallmentPeriods(plan)

@@ -26,6 +26,7 @@ data class CorePlan(
     val installmentTotal: Int = 1,
     val installmentRemaining: Int = 0,
     val installmentTotalAmountMinor: Long = 0,
+    val balanceAppliedThroughEpochDay: Long? = null,
     val active: Boolean = true,
 )
 
@@ -182,8 +183,13 @@ class CoreForecastEngine {
 
     fun occursOn(plan: CorePlan, epochDay: Long): Boolean {
         if (epochDay < plan.startEpochDay || plan.endEpochDay?.let { epochDay > it } == true) return false
+        if (plan.balanceAppliedThroughEpochDay?.let { epochDay <= it } == true) return false
         val occurrenceIndex = occurrenceIndex(plan, epochDay)
-        return occurrenceIndex >= 0 && (plan.installmentRemaining <= 0 || occurrenceIndex < plan.installmentRemaining)
+        if (occurrenceIndex < 0) return false
+        if (plan.installmentTotal <= 1) return true
+        val remaining = plan.installmentRemaining.coerceIn(0, plan.installmentTotal)
+        if (remaining == 0) return false
+        return relativeOccurrenceIndex(plan, occurrenceIndex) in 0 until remaining
     }
 
     fun installmentAmountOn(plan: CorePlan, epochDay: Long): Long {
@@ -192,15 +198,46 @@ class CoreForecastEngine {
             return plan.amountMinor
         }
         val totalPeriods = plan.installmentTotal.coerceAtLeast(1)
-        val remainingPeriods = plan.installmentRemaining.takeIf { it > 0 }?.coerceAtMost(totalPeriods) ?: totalPeriods
+        val remainingPeriods = plan.installmentRemaining.coerceIn(0, totalPeriods)
         val paidPeriods = totalPeriods - remainingPeriods
-        val originalIndex = paidPeriods + occurrenceIndex
+        val originalIndex = paidPeriods + relativeOccurrenceIndex(plan, occurrenceIndex)
         val regularAmount = plan.installmentTotalAmountMinor / totalPeriods
         return if (originalIndex >= totalPeriods - 1) {
             plan.installmentTotalAmountMinor - regularAmount * (totalPeriods - 1L)
         } else {
             regularAmount
         }
+    }
+
+    private fun relativeOccurrenceIndex(plan: CorePlan, originalIndex: Int): Int {
+        val appliedCount = plan.balanceAppliedThroughEpochDay
+            ?.let { lastOccurrenceIndexOnOrBefore(plan, it) + 1 }
+            ?.coerceAtLeast(0)
+            ?: 0
+        return originalIndex - appliedCount
+    }
+
+    private fun lastOccurrenceIndexOnOrBefore(plan: CorePlan, epochDay: Long): Int {
+        if (epochDay < plan.startEpochDay) return -1
+        return when (plan.repeatRule) {
+            CoreRepeatRule.NONE -> 0
+            CoreRepeatRule.DAILY -> (epochDay - plan.startEpochDay).toInt()
+            CoreRepeatRule.WEEKLY -> ((epochDay - plan.startEpochDay) / 7L).toInt()
+            CoreRepeatRule.MONTHLY -> periodicMonthIndexOnOrBefore(plan.startEpochDay, epochDay, 1)
+            CoreRepeatRule.QUARTERLY -> periodicMonthIndexOnOrBefore(plan.startEpochDay, epochDay, 3)
+            CoreRepeatRule.SEMIANNUAL -> periodicMonthIndexOnOrBefore(plan.startEpochDay, epochDay, 6)
+            CoreRepeatRule.YEARLY -> periodicMonthIndexOnOrBefore(plan.startEpochDay, epochDay, 12)
+        }
+    }
+
+    private fun periodicMonthIndexOnOrBefore(startEpochDay: Long, epochDay: Long, step: Int): Int {
+        val start = CivilDate.fromEpochDay(startEpochDay)
+        val date = CivilDate.fromEpochDay(epochDay)
+        val months = (date.year - start.year) * 12 + date.month - start.month
+        if (months < 0) return -1
+        var index = months / step
+        if (start.plusMonths(index * step).toEpochDay() > epochDay) index -= 1
+        return index
     }
 
     private fun occurrenceIndex(plan: CorePlan, epochDay: Long): Int {

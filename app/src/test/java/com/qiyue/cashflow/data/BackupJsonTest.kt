@@ -21,6 +21,7 @@ class BackupJsonTest {
                 repeatRule = RepeatRule.YEARLY, endDateEpochDay = today + 730,
                 installmentTotal = 2, installmentRemaining = 1,
                 installmentTotalAmountCents = 19_801,
+                balanceAppliedThroughEpochDay = today - 1,
             )),
             budgets = listOf(BudgetEntity(
                 id = 3, name = "旅行", totalCents = 50_000, remainingCents = 32_000,

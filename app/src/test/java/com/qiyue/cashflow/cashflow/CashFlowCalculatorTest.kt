@@ -35,9 +35,13 @@ class CashFlowCalculatorTest {
     }
 
     @Test fun weeklyUsesSameWeekdayAndInstallmentsStop() {
-        val weekly=plan("周",EntryType.EXPENSE,100,today,RepeatRule.WEEKLY,remaining=2)
+        val weekly=plan("周",EntryType.EXPENSE,100,today,RepeatRule.WEEKLY)
         assertTrue(calculator.occursOn(weekly,today.plusWeeks(1)))
-        assertFalse(calculator.occursOn(weekly,today.plusWeeks(2)))
+        assertTrue(calculator.occursOn(weekly,today.plusWeeks(2)))
+        val installment=plan("分期",EntryType.EXPENSE,100,today,RepeatRule.MONTHLY,remaining=2)
+            .copy(installmentTotal=2,installmentTotalAmountCents=200)
+        assertTrue(calculator.occursOn(installment,today.plusMonths(1)))
+        assertFalse(calculator.occursOn(installment,today.plusMonths(2)))
     }
 
     @Test fun transferDoesNotChangeTotal() {

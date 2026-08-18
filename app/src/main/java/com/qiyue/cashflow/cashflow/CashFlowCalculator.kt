@@ -82,6 +82,24 @@ class CashFlowCalculator(private val engine: CoreForecastEngine = CoreForecastEn
 
     fun occursOn(plan: PlannedTransactionEntity, date: LocalDate): Boolean =
         engine.occursOn(plan.toCore(), date.toEpochDay())
+
+    fun amountOn(plan: PlannedTransactionEntity, date: LocalDate): Long =
+        engine.installmentAmountOn(plan.toCore(), date.toEpochDay())
+
+    fun dueDates(plan: PlannedTransactionEntity, through: LocalDate): List<LocalDate> {
+        val first = maxOf(
+            LocalDate.ofEpochDay(plan.startDateEpochDay),
+            LocalDate.ofEpochDay((plan.balanceAppliedThroughEpochDay ?: (plan.startDateEpochDay - 1L)) + 1L),
+        )
+        if (first > through) return emptyList()
+        return buildList {
+            var date = first
+            while (date <= through) {
+                if (occursOn(plan, date)) add(date)
+                date = date.plusDays(1)
+            }
+        }
+    }
 }
 
 private fun AccountEntity.toCore() = CoreAccount(
@@ -105,6 +123,7 @@ private fun PlannedTransactionEntity.toCore() = CorePlan(
     installmentTotal = installmentTotal,
     installmentRemaining = installmentRemaining,
     installmentTotalAmountMinor = installmentTotalAmountCents,
+    balanceAppliedThroughEpochDay = balanceAppliedThroughEpochDay,
     active = isActive,
 )
 

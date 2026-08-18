@@ -14,13 +14,13 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class AppDatabaseMigrationTest {
     private val context = ApplicationProvider.getApplicationContext<Context>()
-    private val databaseName = "migration-5-9-test.db"
+    private val databaseName = "migration-5-10-test.db"
 
     @After fun cleanUp() {
         context.deleteDatabase(databaseName)
     }
 
-    @Test fun migration5To9PreservesSettingsAndAddsInstallmentVisibilityAndTips() {
+    @Test fun migration5To10PreservesSettingsAndAddsAutomaticPostingCursor() {
         context.deleteDatabase(databaseName)
         val helper = FrameworkSQLiteOpenHelperFactory().create(
             SupportSQLiteOpenHelper.Configuration.builder(context)
@@ -47,6 +47,7 @@ class AppDatabaseMigrationTest {
             AppDatabase.MIGRATION_6_7.migrate(db)
             AppDatabase.MIGRATION_7_8.migrate(db)
             AppDatabase.MIGRATION_8_9.migrate(db)
+            AppDatabase.MIGRATION_9_10.migrate(db)
             db.query("SELECT defaultHorizonDays, appMode, customModulesCsv, onboardingCompleted, hiddenAccountIdsCsv, hiddenHomeCurrenciesCsv, showFinanceTips FROM AppSettingsEntity WHERE id=1").use { cursor ->
                 cursor.moveToFirst()
                 assertEquals(365, cursor.getInt(0))
@@ -57,8 +58,8 @@ class AppDatabaseMigrationTest {
                 assertEquals("USD", cursor.getString(5))
                 assertEquals(1, cursor.getInt(6))
             }
-            db.query("SELECT installmentTotalAmountCents FROM PlannedTransactionEntity").use { cursor ->
-                assertEquals(1,cursor.columnCount)
+            db.query("SELECT installmentTotalAmountCents, balanceAppliedThroughEpochDay FROM PlannedTransactionEntity").use { cursor ->
+                assertEquals(2,cursor.columnCount)
             }
         }
         helper.close()

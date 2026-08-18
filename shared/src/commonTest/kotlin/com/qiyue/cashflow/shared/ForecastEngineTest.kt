@@ -58,6 +58,24 @@ class ForecastEngineTest {
         assertEquals(9_999,result.endCnyMinor)
     }
 
+    @Test fun appliedInstallmentDateIsNotForecastTwiceAndRemainingCountIsRespected() {
+        val installment = CorePlan(
+            name="分期",type=CoreEntryType.EXPENSE,amountMinor=10_000,currencyCode="CNY",accountName="A",
+            startEpochDay=today,repeatRule=CoreRepeatRule.MONTHLY,
+            installmentTotal=6,installmentRemaining=5,installmentTotalAmountMinor=60_000,
+            balanceAppliedThroughEpochDay=today,
+        )
+        assertFalse(engine.occursOn(installment,today))
+        assertTrue(engine.occursOn(installment,CivilDate(2026,2,28).toEpochDay()))
+        assertTrue(engine.occursOn(installment,CivilDate(2026,6,30).toEpochDay()))
+        assertFalse(engine.occursOn(installment,CivilDate(2026,7,31).toEpochDay()))
+        val result=engine.forecast(
+            accounts=listOf(CoreAccount("A",100_000,"CNY")),plans=listOf(installment),
+            budgets=emptyList(),adjustments=emptyList(),todayEpochDay=today,horizonDays=181,
+        )
+        assertEquals(50_000,result.endCnyMinor)
+    }
+
     @Test fun repeatingBudgetAdjustmentAndExcludedAccountMatchCashRules() {
         val result = engine.forecast(
             accounts = listOf(

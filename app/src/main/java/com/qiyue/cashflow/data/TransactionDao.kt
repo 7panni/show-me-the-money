@@ -116,6 +116,15 @@ interface TransactionDao {
     }
 
     @Transaction
+    suspend fun commitAutomaticPlanPosting(
+        accounts: List<AccountEntity>,
+        plans: List<PlannedTransactionEntity>,
+    ) {
+        accounts.forEach { upsertAccount(it) }
+        plans.forEach { upsertPlan(it) }
+    }
+
+    @Transaction
     suspend fun replaceForecastData(
         accounts: List<AccountEntity>,
         plans: List<PlannedTransactionEntity>,

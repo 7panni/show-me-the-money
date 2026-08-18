@@ -17,7 +17,7 @@ data class ForecastBackup(
 object BackupJson {
     fun encode(data: ForecastBackup): String = JSONObject().apply {
         put("format", "cashflow-forecast")
-        put("version", 5)
+        put("version", 6)
         put("accounts", JSONArray(data.accounts.map { a -> JSONObject().apply {
             put("id", a.id); put("name", a.name); put("initialBalance", a.initialBalanceCents); put("balance", a.currentBalanceCents)
             put("currency", a.currencyCode); put("rate", a.exchangeRateToCnyMicros)
@@ -59,6 +59,7 @@ object BackupJson {
             put("hiddenAccountIds", data.settings.hiddenAccountIdsCsv)
             put("hiddenHomeCurrencies", data.settings.hiddenHomeCurrenciesCsv)
             put("showFinanceTips", data.settings.showFinanceTips)
+            put("financeTipChangesDaily", data.settings.financeTipChangesDaily)
             put("onboardingCompleted", data.settings.onboardingCompleted)
             put("seeded", data.settings.seeded)
         })
@@ -103,7 +104,7 @@ object BackupJson {
             AppSettingsEntity(
                 usdRateMicros=s.getLong("usdRate"),
                 defaultHorizonDays=s.getInt("horizon"),
-                budgetMonthStartDay=s.optInt("budgetMonthStartDay", 21),
+                budgetMonthStartDay=s.optInt("budgetMonthStartDay", 1),
                 showUsdOnHome=s.optBoolean("showUsdOnHome", true),
                 showCryptoOnHome=s.optBoolean("showCryptoOnHome", true),
                 showPaypalOnAccounts=s.optBoolean("showPaypalOnAccounts", true),
@@ -114,6 +115,7 @@ object BackupJson {
                 hiddenAccountIdsCsv=s.optString("hiddenAccountIds", ""),
                 hiddenHomeCurrenciesCsv=s.optString("hiddenHomeCurrencies", ""),
                 showFinanceTips=s.optBoolean("showFinanceTips", true),
+                financeTipChangesDaily=s.optBoolean("financeTipChangesDaily", false),
                 onboardingCompleted=s.optBoolean("onboardingCompleted", true),
                 seeded=s.optBoolean("seeded", true)
             ),

@@ -106,8 +106,16 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
             bottomBar = { CashBottomBar(tab) { tab = it } },
             containerColor = Paper,
             snackbarHost = { state.message?.let { msg ->
-                Snackbar(modifier=Modifier.padding(12.dp), action={
-                    TextButton(onClick=if(state.pendingTransferUndo!=null) vm::undoLastTransfer else vm::dismissMessage) {
+                Snackbar(
+                    modifier=Modifier.padding(12.dp),
+                    containerColor=Green,
+                    contentColor=Color.White,
+                    actionContentColor=Color.White,
+                    action={
+                    TextButton(
+                        onClick=if(state.pendingTransferUndo!=null) vm::undoLastTransfer else vm::dismissMessage,
+                        colors=ButtonDefaults.textButtonColors(contentColor=Color.White),
+                    ) {
                         Text(if(state.pendingTransferUndo!=null) "撤销" else "知道了")
                     }
                 }) { Text(msg) }
@@ -271,6 +279,7 @@ fun CashFlowApp(vm: CashFlowViewModel = viewModel()) {
             s.firstShortageDate,
             s.days.firstOrNull{it.date==s.firstShortageDate}?.balanceCents,
             state.settings.showFinanceTips,
+            state.settings.financeTipChangesDaily,
         ) }
         item { PageSectionHeader("接下来会发生什么") {
             Text("查看全部计划 ›",Modifier.clickable(onClick=openPlans),color=Muted,fontSize=9.sp)
@@ -373,8 +382,11 @@ private val shortageMessages = listOf(
     "留住现金，也是在留住选择。",
 )
 
-@Composable private fun ShortageCard(date:LocalDate?,balanceOnDate:Long?,showTip:Boolean) {
-    val message=remember(date){date?.let{shortageMessages[(it.toEpochDay().absoluteValue%shortageMessages.size).toInt()]}}
+@Composable private fun ShortageCard(date:LocalDate?,balanceOnDate:Long?,showTip:Boolean,changesDaily:Boolean) {
+    val message=remember(date,changesDaily){date?.let{
+        val seed=if(changesDaily)LocalDate.now().toEpochDay() else it.toEpochDay()
+        shortageMessages[(seed.absoluteValue%shortageMessages.size).toInt()]
+    }}
     Card(
         modifier=Modifier.fillMaxWidth(),
         shape=RoundedCornerShape(2.dp),
@@ -684,6 +696,7 @@ private val shortageMessages = listOf(
         mutableStateOf(parseAccountIdCsv(state.settings.hiddenAccountIdsCsv))
     }
     var showFinanceTips by remember(state.settings.showFinanceTips) { mutableStateOf(state.settings.showFinanceTips) }
+    var financeTipChangesDaily by remember(state.settings.financeTipChangesDaily) { mutableStateOf(state.settings.financeTipChangesDaily) }
     var showAccountVisibility by remember { mutableStateOf(false) }
     val homeCurrencies=state.accounts.map{it.currencyCode}.filter{it!="CNY"}.distinct().sortedWith(
         compareBy<String>{when(it){"USD"->1;"CRYPTO"->99;else->10}}.thenBy{it}
@@ -715,11 +728,35 @@ private val shortageMessages = listOf(
             HorizontalDivider(color=Line)
             Row(Modifier.fillMaxWidth().padding(horizontal=12.dp,vertical=7.dp),verticalAlignment=Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)){Text("每月预算起始日",fontSize=11.sp,fontWeight=FontWeight.SemiBold);Text("1—28 日",fontSize=8.sp,color=Muted)}
-                OutlinedTextField(budgetStartDay,{budgetStartDay=it},Modifier.width(76.dp).height(48.dp),singleLine=true,keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Number),suffix={Text("日",fontSize=10.sp)})
+                Row(
+                    Modifier.width(108.dp).height(42.dp).border(1.dp,Color(0xFFBFC5BE),RoundedCornerShape(3.dp)).background(Color.White).padding(horizontal=10.dp),
+                    verticalAlignment=Alignment.CenterVertically,
+                ) {
+                    BasicTextField(
+                        budgetStartDay,
+                        {budgetStartDay=it.filter(Char::isDigit).take(2)},
+                        Modifier.weight(1f),
+                        singleLine=true,
+                        textStyle=MaterialTheme.typography.bodyMedium.copy(color=Ink,fontSize=13.sp,textAlign=TextAlign.Center),
+                        keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Number,imeAction=ImeAction.Done),
+                    )
+                    Text("日",color=Muted,fontSize=10.sp)
+                }
             }
             HorizontalDivider(color=Line)
-            SettingToggleRow("现金预警提示语",showFinanceTips,"预警期间保持不变"){showFinanceTips=it}
-            Button({vm.updateSettings(days,budgetStartDay.toIntOrNull()?:21,hiddenHomeCurrencies,hiddenAccountIds,showFinanceTips)},Modifier.fillMaxWidth().padding(10.dp),shape=RoundedCornerShape(0.dp)){Text("保存设置",fontSize=11.sp)}
+            SettingToggleRow(
+                "现金预警提示语",showFinanceTips,
+                if(!showFinanceTips)"不显示" else if(financeTipChangesDaily)"风险期间每天更换" else "风险期间保持不变"
+            ){showFinanceTips=it}
+            if(showFinanceTips) {
+                Column(Modifier.fillMaxWidth().padding(horizontal=12.dp,vertical=8.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
+                    Text("预警期间提示语",fontSize=10.sp,fontWeight=FontWeight.SemiBold)
+                    ChoiceRow(listOf(false,true),financeTipChangesDaily,{financeTipChangesDaily=it}){
+                        if(it)"每天更换" else "保持不变"
+                    }
+                }
+            }
+            Button({vm.updateSettings(days,budgetStartDay.toIntOrNull()?:1,hiddenHomeCurrencies,hiddenAccountIds,showFinanceTips,financeTipChangesDaily)},Modifier.fillMaxWidth().padding(10.dp),shape=RoundedCornerShape(0.dp)){Text("保存设置",fontSize=11.sp)}
         } }
         item { SettingsGroup("数据") {
             SettingActionRow("导出完整备份","JSON 文件保存到本机"){create.launch("现金流预测备份-${LocalDate.now()}.json")}
@@ -738,7 +775,7 @@ private val shortageMessages = listOf(
         } }
     }
     if(showAccountVisibility) EditDialog("账户页显示",{showAccountVisibility=false},{
-        vm.updateSettings(days,budgetStartDay.toIntOrNull()?:21,hiddenHomeCurrencies,hiddenAccountIds,showFinanceTips)
+        vm.updateSettings(days,budgetStartDay.toIntOrNull()?:1,hiddenHomeCurrencies,hiddenAccountIds,showFinanceTips,financeTipChangesDaily)
         showAccountVisibility=false
     }) {
         Text("选择要在账户页显示的项目",color=Muted,fontSize=10.sp)

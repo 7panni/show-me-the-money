@@ -8,15 +8,21 @@ A simple and intuitive cash flow forecasting app for mobile. Maintain account ba
 
 项目地址：[github.com/7panni/show-me-the-money](https://github.com/7panni/show-me-the-money)
 
-## 界面示意
+## 实际界面
 
-以下图片全部使用虚拟示例金额，不含真实账户或用户数据。
+以下均为 Android 手机实际运行截图，使用应用内置的虚拟示例金额，不含真实账户或用户数据。
 
 <p align="center">
-  <img src="docs/screenshots/home-virtual-data.png" width="220" alt="首页界面示意图（虚拟数据）">
-  <img src="docs/screenshots/plans-virtual-data.png" width="220" alt="计划页界面示意图（虚拟数据）">
-  <img src="docs/screenshots/accounts-virtual-data.png" width="220" alt="账户页界面示意图（虚拟数据）">
-  <img src="docs/screenshots/settings-virtual-data.png" width="220" alt="设置页界面示意图（虚拟数据）">
+  <img src="docs/screenshots/onboarding-actual.jpg" width="190" alt="首次启动账户选择">
+  <img src="docs/screenshots/home-actual.jpg" width="190" alt="首页余额走势">
+  <img src="docs/screenshots/upcoming-actual.jpg" width="190" alt="首页未来款项">
+  <img src="docs/screenshots/plans-actual.jpg" width="190" alt="计划页">
+</p>
+<p align="center">
+  <img src="docs/screenshots/installment-dialog-actual.jpg" width="190" alt="新增分期">
+  <img src="docs/screenshots/recurring-dialog-actual.jpg" width="190" alt="新增固定款项">
+  <img src="docs/screenshots/accounts-actual.jpg" width="190" alt="账户页">
+  <img src="docs/screenshots/cash-warning-actual.jpg" width="190" alt="现金为负预警">
 </p>
 
 ## 功能
@@ -29,6 +35,8 @@ A simple and intuitive cash flow forecasting app for mobile. Maintain account ba
 - 每周、每月、每季度、每半年、每年计划
 - 周期预算和未来临时收支
 - 30、90、365 天余额预测与可查看数值的走势图
+- 每月预算默认从 1 日开始，可在设置中改为 1—28 日
+- 现金风险提示语可关闭，或选择在风险期间保持不变、每天更换
 - JSON 完整备份与恢复
 - 首次启动默认只提供虚构的工资、房租示例，其他内容按需添加
 - 每个账户可单独选择是否在账户页显示；默认提供银行、微信、支付宝、现金、PayPal 和数字货币

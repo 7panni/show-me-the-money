@@ -14,13 +14,13 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class AppDatabaseMigrationTest {
     private val context = ApplicationProvider.getApplicationContext<Context>()
-    private val databaseName = "migration-5-10-test.db"
+    private val databaseName = "migration-5-11-test.db"
 
     @After fun cleanUp() {
         context.deleteDatabase(databaseName)
     }
 
-    @Test fun migration5To10PreservesSettingsAndAddsAutomaticPostingCursor() {
+    @Test fun migration5To11PreservesSettingsAndAddsNewDefaults() {
         context.deleteDatabase(databaseName)
         val helper = FrameworkSQLiteOpenHelperFactory().create(
             SupportSQLiteOpenHelper.Configuration.builder(context)
@@ -48,7 +48,8 @@ class AppDatabaseMigrationTest {
             AppDatabase.MIGRATION_7_8.migrate(db)
             AppDatabase.MIGRATION_8_9.migrate(db)
             AppDatabase.MIGRATION_9_10.migrate(db)
-            db.query("SELECT defaultHorizonDays, appMode, customModulesCsv, onboardingCompleted, hiddenAccountIdsCsv, hiddenHomeCurrenciesCsv, showFinanceTips FROM AppSettingsEntity WHERE id=1").use { cursor ->
+            AppDatabase.MIGRATION_10_11.migrate(db)
+            db.query("SELECT defaultHorizonDays, appMode, customModulesCsv, onboardingCompleted, hiddenAccountIdsCsv, hiddenHomeCurrenciesCsv, showFinanceTips, budgetMonthStartDay, financeTipChangesDaily FROM AppSettingsEntity WHERE id=1").use { cursor ->
                 cursor.moveToFirst()
                 assertEquals(365, cursor.getInt(0))
                 assertEquals("FULL", cursor.getString(1))
@@ -57,6 +58,8 @@ class AppDatabaseMigrationTest {
                 assertEquals("", cursor.getString(4))
                 assertEquals("USD", cursor.getString(5))
                 assertEquals(1, cursor.getInt(6))
+                assertEquals(1, cursor.getInt(7))
+                assertEquals(0, cursor.getInt(8))
             }
             db.query("SELECT installmentTotalAmountCents, balanceAppliedThroughEpochDay FROM PlannedTransactionEntity").use { cursor ->
                 assertEquals(2,cursor.columnCount)

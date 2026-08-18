@@ -120,7 +120,7 @@ data class AppSettingsEntity(
     @PrimaryKey val id: Int = 1,
     val usdRateMicros: Long = 7_200_000,
     val defaultHorizonDays: Int = 90,
-    val budgetMonthStartDay: Int = 21,
+    val budgetMonthStartDay: Int = 1,
     val showUsdOnHome: Boolean = true,
     val showCryptoOnHome: Boolean = true,
     val showPaypalOnAccounts: Boolean = true,
@@ -131,6 +131,7 @@ data class AppSettingsEntity(
     val hiddenAccountIdsCsv: String = "",
     val hiddenHomeCurrenciesCsv: String = "",
     val showFinanceTips: Boolean = true,
+    val financeTipChangesDaily: Boolean = false,
     val onboardingCompleted: Boolean = false,
     val seeded: Boolean = false
 )

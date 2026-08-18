@@ -171,6 +171,7 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
         hiddenHomeCurrencies: Set<String>,
         hiddenAccountIds: Set<Long>,
         showFinanceTips: Boolean,
+        financeTipChangesDaily: Boolean,
     ) = launch {
         val accounts = dao.getAccounts()
         fun shows(type: AccountType) = accounts.none { it.accountType == type } ||
@@ -187,9 +188,17 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
                 .sorted().joinToString(","),
             hiddenHomeCurrenciesCsv = hiddenHomeCurrencies.map { it.uppercase() }.distinct().sorted().joinToString(","),
             showFinanceTips = showFinanceTips,
+            financeTipChangesDaily = financeTipChangesDaily,
             onboardingCompleted = true,
             seeded = true
         ))
+        val cycle = BudgetCycles.containing(LocalDate.now(), budgetStartDay.coerceIn(1, 28))
+        dao.getBudgets().filter { it.period == BudgetPeriod.MONTHLY }.forEach { budget ->
+            dao.upsertBudget(budget.copy(
+                startDateEpochDay = cycle.first.toEpochDay(),
+                endDateEpochDay = cycle.second.toEpochDay(),
+            ))
+        }
         horizon.value = defaultDays
         message.value = "设置已保存"
     }
@@ -299,7 +308,7 @@ class CashFlowViewModel(application: Application) : AndroidViewModel(application
         if (dao.getSettings() != null) return
         dao.upsertSettings(AppSettingsEntity(
             defaultHorizonDays = 90,
-            budgetMonthStartDay = 21,
+            budgetMonthStartDay = 1,
             appMode = AppMode.SIMPLE.name,
             onboardingCompleted = false,
             seeded = true,

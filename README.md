@@ -10,6 +10,10 @@ A simple and intuitive cash flow forecasting app for mobile. Maintain account ba
 
 项目地址：[github.com/7panni/show-me-the-money](https://github.com/7panni/show-me-the-money)
 
+## 配套应用
+
+[钱去哪了（LedgerFlow）](https://github.com/7panni/ledgerflow) 将日常记账、分类统计、借贷管理与现金流预测放在一起，适合需要记录实际收支和查看未来计划的用户。本项目「啥时候有钱」保留为独立的轻量现金流预测应用，两者独立维护，不要求云同步。
+
 ## 实际界面
 
 以下均为 Android 手机实际运行截图，使用应用内置的虚拟示例金额，不含真实账户或用户数据。
